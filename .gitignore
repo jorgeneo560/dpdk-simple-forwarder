@@ -1,0 +1,5 @@
+build/
+*.pdf
+*.o
+*.csv
+log.txt
