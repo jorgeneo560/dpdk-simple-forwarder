@@ -1,11 +1,14 @@
 #ifndef FLOWFWD_HUGEPAGES_H
 #define FLOWFWD_HUGEPAGES_H
 
+#include <stdbool.h>
+
 /*
- * Verifies free hugepages exist. Call before rte_eal_init().
- * Returns 0 on success, -1 on failure.
+ * Verifies free hugepages exist. Skipped when the EAL options contain
+ * "--no-huge". Call before rte_eal_init().
+ * Returns true on success, false on failure.
  */
-int hugepages_check(void);
+bool hugepages_check(int argc, char **argv);
 
 /*
  * Deletes leftover EAL hugepage files (rtemap_*) that no process is using.

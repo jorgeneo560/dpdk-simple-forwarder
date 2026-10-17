@@ -5,7 +5,13 @@ set -eu
 ROOT=$(cd "$(dirname "$0")" && pwd)
 BIN_DIR="$ROOT/build"
 
-make -C "$ROOT"
+echo "[1/3] building (warnings are errors)"
+make -C "$ROOT" --no-print-directory
 
+echo "[2/3] running unit tests"
+make -C "$ROOT" --no-print-directory test
+
+echo "[3/3] copying flowfwd.conf next to the binary"
 cp "$ROOT/flowfwd.conf" "$BIN_DIR/flowfwd.conf"
-echo "built $BIN_DIR/flowfwd and copied flowfwd.conf next to it"
+
+echo "done: $BIN_DIR/flowfwd"

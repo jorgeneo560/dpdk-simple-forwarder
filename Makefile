@@ -1,38 +1,62 @@
-APP     := flowfwd
-SRCS    := src/main.c lib/hugepages.c lib/nics.c lib/pmd_ids.c lib/config.c lib/forward.c lib/logger.c lib/export.c lib/flow_export.c lib/parse.c lib/ports.c
-BUILD   := build
-OBJS    := $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
+APP   := flowfwd
+BUILD := build
+
+# Quiet by default, run "make V=1" to see the full compiler commands.
+Q := $(if $(V),,@)
+
+SRCS := $(wildcard src/*.c lib/*.c)
+OBJS := $(SRCS:%.c=$(BUILD)/%.o)
+
+# Any warning stops the build.
+WARNINGS := -Wall -Wextra -Werror -Wshadow -Wstrict-prototypes -Wmissing-prototypes \
+            -Wformat=2 -Wundef -Wpointer-arith -Wwrite-strings -Wvla
 
 PKGCONF ?= pkg-config
-CFLAGS  += -O3 -g -Wall -Wextra -std=gnu11 -Ilib $(shell $(PKGCONF) --cflags libdpdk)
+# -MMD writes a .d file per object so a changed header rebuilds what includes it.
+CFLAGS  += -O3 -g -std=gnu11 $(WARNINGS) -MMD -MP -Ilib $(shell $(PKGCONF) --cflags libdpdk)
 LDFLAGS += $(shell $(PKGCONF) --libs libdpdk) -pthread
 
 all: $(BUILD)/$(APP)
 
 $(BUILD)/$(APP): $(OBJS)
-	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+	@echo "  LINK  $@"
+	$(Q)$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
-$(BUILD)/%.o: %.c $(wildcard lib/*.h src/*.h)
+$(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@echo "  CC    $<"
+	$(Q)$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD):
-	mkdir -p $@
+-include $(OBJS:.o=.d)
 
+# Unit tests: no DPDK needed, they build only the file they test.
 TEST_EXPORT := $(BUILD)/test_export
 TEST_PARSE  := $(BUILD)/test_parse
+TEST_RSS    := $(BUILD)/test_rss
+TEST_CFLAGS := -O0 -g -std=gnu11 $(WARNINGS) -Ilib
 
-test: $(TEST_EXPORT) $(TEST_PARSE)
-	$(TEST_EXPORT)
-	$(TEST_PARSE)
+test: $(TEST_EXPORT) $(TEST_PARSE) $(TEST_RSS)
+	@echo "  RUN   $(TEST_EXPORT)"
+	$(Q)$(TEST_EXPORT)
+	@echo "  RUN   $(TEST_PARSE)"
+	$(Q)$(TEST_PARSE)
+	@echo "  RUN   $(TEST_RSS)"
+	$(Q)$(TEST_RSS)
 
 $(TEST_EXPORT): tests/test_export.c lib/export.c lib/export.h lib/flow.h
 	@mkdir -p $(BUILD)
-	$(CC) -O0 -g -Wall -Wextra -std=gnu11 -Ilib tests/test_export.c lib/export.c -o $@
+	@echo "  CC    $@"
+	$(Q)$(CC) $(TEST_CFLAGS) tests/test_export.c lib/export.c -o $@
 
 $(TEST_PARSE): tests/test_parse.c lib/parse.c lib/parse.h
 	@mkdir -p $(BUILD)
-	$(CC) -O0 -g -Wall -Wextra -std=gnu11 -Ilib tests/test_parse.c lib/parse.c -o $@
+	@echo "  CC    $@"
+	$(Q)$(CC) $(TEST_CFLAGS) tests/test_parse.c lib/parse.c -o $@
+
+$(TEST_RSS): tests/test_rss.c lib/rss.c lib/rss.h
+	@mkdir -p $(BUILD)
+	@echo "  CC    $@"
+	$(Q)$(CC) $(TEST_CFLAGS) tests/test_rss.c lib/rss.c -o $@
 
 clean:
 	rm -rf $(BUILD)

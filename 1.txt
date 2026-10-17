@@ -14,32 +14,32 @@ Requirements:
 	3.	Packet Processing Logic:
 	•	Parse incoming packets to extract basic Ethernet/IP header information. OK
 	•	Drop packets if they are non-IP packets. OK
-	•	Optionally modify the packet headers (e.g., change the destination MAC address).
+	•	Optionally modify the packet headers (e.g., change the destination MAC address). OK
 	•	Forward valid packets to the appropriate interface. OK
 	4.	Performance Considerations:
 	•	Use multiple RX/TX queues to enable parallel processing by multiple worker threads. OK
 	•	Optimize memory access patterns for cache efficiency.
 	•	Implement basic batch processing for packets. OK
 	5.	Flow Tracking & Affinity:
-	•	Implement flow tracking using a 5-tuple (src IP, dst IP, src port, dst port, protocol).
-	•	Ensure flow affinity is respected: all packets belonging to the same flow must be processed by the same worker thread/core.
-	•	Use RSS (Receive Side Scaling) or a consistent hash function to distribute flows across queues while maintaining affinity.
+	•	Implement flow tracking using a 5-tuple (src IP, dst IP, src port, dst port, protocol). OK
+	•	Ensure flow affinity is respected: all packets belonging to the same flow must be processed by the same worker thread/core. OK
+	•	Use RSS (Receive Side Scaling) or a consistent hash function to distribute flows across queues while maintaining affinity. OK
 	6.	Per-Flow Statistics Collection:
-	•	For each tracked flow, collect the following metrics:
+	•	For each tracked flow, collect the following metrics: OK
 		-	Inbound bytes (rx_bytes)
 		-	Outbound bytes (tx_bytes)
 		-	Inbound packets (rx_packets)
 		-	Outbound packets (tx_packets)
-	•	Statistics should be updated in real-time as packets are processed.
+	•	Statistics should be updated in real-time as packets are processed. OK
 	7.	Periodic Flow Statistics Export:
-	•	Use one export file per core/thread (e.g., `flow_stats_core_<core_id>.csv`).
-	•	At each export interval, append per-flow statistics to the corresponding core's file.
-	•	Each export record should include: timestamp, flow 5-tuple (src IP, dst IP, src port, dst port, protocol), rx_bytes, tx_bytes, rx_packets, tx_packets.
-	•	The same flow may have multiple records at different timestamps (one per export interval).
-	•	Export interval should be configurable via command-line argument or configuration.
+	•	Use one export file per core/thread (e.g., `flow_stats_core_<core_id>.csv`). OK
+	•	At each export interval, append per-flow statistics to the corresponding core's file. OK
+	•	Each export record should include: timestamp, flow 5-tuple (src IP, dst IP, src port, dst port, protocol), rx_bytes, tx_bytes, rx_packets, tx_packets. OK
+	•	The same flow may have multiple records at different timestamps (one per export interval). OK
+	•	Export interval should be configurable via command-line argument or configuration. OK
 	8.	Flow Timeout & Cleanup:
-	•	Flows that have been inactive (no packets received) for a configurable timeout period should be deleted from the tracking table.
-	•	Timeout duration should be configurable via command-line argument or configuration.
+	•	Flows that have been inactive (no packets received) for a configurable timeout period should be deleted from the tracking table. OK
+	•	Timeout duration should be configurable via command-line argument or configuration. OK
 	9.	Logging & Debugging:
 	•	Implement logging for debugging purposes. OK
 
@@ -54,7 +54,7 @@ Expected Deliverables:
 
 Bonus Challenges (Optional but Appreciated):
 	1.	Use multiple cores for improved performance (e.g., separate RX and TX threads).
-	2.	Support configurable flow table size with graceful handling when capacity is reached.
+	2.	Support configurable flow table size with graceful handling when capacity is reached. OK
 
 Evaluation Criteria:
 	•	Code correctness & stability

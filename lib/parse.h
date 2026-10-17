@@ -5,21 +5,21 @@
 #include <stdint.h>
 
 enum parse_result {
-	PARSE_IP,		// IPv4 or IPv6, info is filled in
-	PARSE_ARP,
-	PARSE_OTHER,		// any other EtherType
-	PARSE_MALFORMED,	// truncated or inconsistent headers
+  PARSE_IP, // IPv4 or IPv6, info is filled in
+  PARSE_ARP,
+  PARSE_OTHER,     // any other EtherType
+  PARSE_MALFORMED, // truncated or inconsistent headers
 };
 
 /* What parse_packet() extracts. All fields are zero unless the packet is IP. */
 struct pkt_info {
-	uint16_t ether_type;	// after any VLAN tags (also set for ARP and other)
-	uint8_t family;		// 4 or 6
-	uint8_t proto;		// IP protocol (IPv6: the next-header field)
-	uint16_t src_port;	// host byte order; 0 when the protocol has no ports
-	uint16_t dst_port;
-	uint8_t src_ip[16];	// network byte order; IPv4 uses the first 4 bytes
-	uint8_t dst_ip[16];
+  uint16_t ether_type; // after any VLAN tags (also set for ARP and other)
+  uint8_t family;      // 4 or 6
+  uint8_t proto;       // IP protocol (IPv6: the next-header field)
+  uint16_t src_port;   // host byte order; 0 when the protocol has no ports
+  uint16_t dst_port;
+  uint8_t src_ip[16]; // network byte order; IPv4 uses the first 4 bytes
+  uint8_t dst_ip[16];
 };
 
 /*
@@ -29,6 +29,7 @@ struct pkt_info {
  * are not walked: the proto is the first next-header and ports stay 0 unless
  * TCP/UDP follows the fixed header directly.
  */
-enum parse_result parse_packet(const uint8_t *data, size_t len, struct pkt_info *info);
+enum parse_result parse_packet(const uint8_t *data, size_t len,
+                               struct pkt_info *info);
 
 #endif
