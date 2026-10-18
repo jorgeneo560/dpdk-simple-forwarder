@@ -26,6 +26,7 @@
 struct tx_item {
   struct rte_mbuf *mbuf;
   int32_t slot; // flow slot of the packet, FLOW_NO_SLOT if it is not tracked
+  uint32_t gen; // generation of that slot when the packet was seen
   uint16_t len; // bytes of the packet on the wire
 };
 
@@ -127,7 +128,8 @@ static uint16_t receive_burst(const struct queue_args *args, uint16_t from,
   flow_table_track(args->table, &batch);
 
   for (uint16_t i = 0; i < nb_kept; i++) {
-    items[i] = (struct tx_item){bufs[i], batch.slot[i], batch.len[i]};
+    items[i] = (struct tx_item){bufs[i], batch.slot[i], batch.gen[i],
+                                batch.len[i]};
   }
   nb_queued =
       rte_ring_enqueue_burst_elem(ring, items, sizeof(items[0]), nb_kept, NULL);
@@ -160,7 +162,8 @@ static uint16_t send_burst(const struct queue_args *args, struct rte_ring *ring,
   // Only the saved slot and length are used: a sent packet is no longer ours.
   for (uint16_t i = 0; i < nb_tx; i++) {
     if (items[i].slot != FLOW_NO_SLOT) {
-      flow_table_count_sent(args->table, items[i].slot, items[i].len);
+      flow_table_count_sent(args->table, items[i].slot, items[i].gen,
+                            items[i].len);
     }
   }
   if (nb_tx < n) {

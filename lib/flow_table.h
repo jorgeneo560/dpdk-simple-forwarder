@@ -48,6 +48,7 @@ struct flow_batch {
   struct pkt_info info[BURST_SIZE]; ///< parsed headers of each kept packet
   uint16_t len[BURST_SIZE];         ///< bytes of each kept packet on the wire
   int32_t slot[BURST_SIZE]; ///< flow slot of each packet, or FLOW_NO_SLOT
+  uint32_t gen[BURST_SIZE]; ///< generation of that slot when the packet was seen
 };
 
 /**
@@ -55,7 +56,7 @@ struct flow_batch {
  *
  * Reads the headers of each packet, keeps the IP packets (and ARP if
  * cfg->pass_arp) and frees the rest. While the table is full (an insert failed
- * and the cleaner has not freed room yet), a TCP packet of a flow that is not
+ * and the cleaner has not freed room yet), a TCP or UDP packet of a flow that is not
  * in the table is dropped too and counted in batch->table_full_drops. The kept
  * packets are moved to the front of bufs and their headers are saved in batch.
  *
@@ -72,9 +73,9 @@ uint16_t flow_table_remove_non_ip_pkts(const struct flow_table *table,
 /**
  * @brief Step 2 (RX thread): counts the packets of the batch as received.
  *
- * Adds the TCP flows to the table and counts each packet in its flow. The
+ * Adds the TCP and UDP flows to the table and counts each packet in its flow. The
  * flow slot of each packet is saved in batch->slot, so the TX thread can count
- * the packet as sent later. A packet that is not tracked (not TCP, or the table
+ * the packet as sent later. A packet that is not tracked (not TCP or UDP, or the table
  * has no room for its flow, which marks the table full, see step 1) gets
  * FLOW_NO_SLOT.
  *
@@ -88,9 +89,11 @@ void flow_table_track(struct flow_table *table, struct flow_batch *batch);
  *
  * @param table Table of the queue.
  * @param slot  Slot saved by flow_table_track(); not FLOW_NO_SLOT.
+ * @param gen   Generation saved with the slot. If the slot has since been given
+ *              to another flow, the packet is ignored.
  * @param len   Bytes of the packet on the wire.
  */
-void flow_table_count_sent(struct flow_table *table, int32_t slot,
+void flow_table_count_sent(struct flow_table *table, int32_t slot, uint32_t gen,
                            uint16_t len);
 
 /**

@@ -43,6 +43,7 @@ struct flow_entry {
 struct flow_tx_entry {
   atomic_uint_fast64_t bytes;
   atomic_uint_fast64_t packets;
+  atomic_uint_fast32_t gen; // changes every time the slot gets a new flow
 };
 
 struct flow_table {
@@ -128,12 +129,13 @@ void flow_table_free(struct flow_table *table) {
 }
 
 // Adds a received packet to its flow and returns the flow slot, or FLOW_NO_SLOT
-// if the table has no room for the flow.
+// if the table has no room for the flow. *gen is the generation of the slot.
 static int32_t track_flow(struct flow_table *table,
                           const struct pkt_info *info, uint16_t len,
-                          uint64_t now) {
+                          uint64_t now, uint32_t *gen) {
   struct flow_key key;
   struct flow_entry *entry;
+  struct flow_tx_entry *tx;
   int slot;
 
   make_flow_key(&key, info);
@@ -143,25 +145,33 @@ static int32_t track_flow(struct flow_table *table,
     return FLOW_NO_SLOT;
   }
   entry = &table->entries[slot];
-  // last_seen is 0 only for a slot that is not in use. No packet of the old
-  // flow can still be on its way to the TX thread: it was idle for the timeout.
+  tx = &table->tx_entries[slot];
+  // last_seen is 0 only for a slot that is not in use. A new flow gets a new
+  // generation, so a packet of the old flow that is still waiting for the TX
+  // thread is not counted in it.
   if (entry->last_seen == 0) {
+    atomic_store_explicit(
+        &tx->gen, atomic_load_explicit(&tx->gen, memory_order_relaxed) + 1,
+        memory_order_release);
     memset(entry, 0, sizeof(*entry));
-    atomic_store_explicit(&table->tx_entries[slot].bytes, 0,
-                          memory_order_relaxed);
-    atomic_store_explicit(&table->tx_entries[slot].packets, 0,
-                          memory_order_relaxed);
+    atomic_store_explicit(&tx->bytes, 0, memory_order_relaxed);
+    atomic_store_explicit(&tx->packets, 0, memory_order_relaxed);
   }
   entry->last_seen = now;
   entry->rx_packets++;
   entry->rx_bytes += len;
+  *gen = (uint32_t)atomic_load_explicit(&tx->gen, memory_order_relaxed);
   return slot;
 }
 
-void flow_table_count_sent(struct flow_table *table, int32_t slot,
+void flow_table_count_sent(struct flow_table *table, int32_t slot, uint32_t gen,
                            uint16_t len) {
   struct flow_tx_entry *tx = &table->tx_entries[slot];
 
+  // The slot went to another flow while the packet was waiting: not its packet.
+  if ((uint32_t)atomic_load_explicit(&tx->gen, memory_order_acquire) != gen) {
+    return;
+  }
   // A single writer, so a plain load and store is enough.
   atomic_store_explicit(
       &tx->packets, atomic_load_explicit(&tx->packets, memory_order_relaxed) + 1,
@@ -200,12 +210,12 @@ static unsigned int expire_flows(struct flow_table *table, uint64_t now,
   return removed;
 }
 
-// Only TCP has a clear end, so only TCP flows are tracked.
-// A TCP packet without ports is a non-first fragment: it belongs to a flow seen
-// earlier.
+// TCP and UDP flows are tracked: they have ports, so the 5-tuple is complete.
+// The timeout removes the ones that stop, so no connection end is needed. A
+// packet without ports is a non-first fragment, or another protocol (ICMP).
 static bool is_trackable(const struct pkt_info *info) {
-  return info->proto == IPPROTO_TCP && info->src_port != 0 &&
-         info->dst_port != 0;
+  return (info->proto == IPPROTO_TCP || info->proto == IPPROTO_UDP) &&
+         info->src_port != 0 && info->dst_port != 0;
 }
 
 uint16_t flow_table_remove_non_ip_pkts(const struct flow_table *table,
@@ -253,9 +263,11 @@ void flow_table_track(struct flow_table *table, struct flow_batch *batch) {
 
   for (uint16_t i = 0; i < batch->count; i++) {
     if (is_trackable(&batch->info[i])) {
-      batch->slot[i] = track_flow(table, &batch->info[i], batch->len[i], now);
+      batch->slot[i] = track_flow(table, &batch->info[i], batch->len[i], now,
+                                  &batch->gen[i]);
     } else {
       batch->slot[i] = FLOW_NO_SLOT;
+      batch->gen[i] = 0;
     }
   }
 }
