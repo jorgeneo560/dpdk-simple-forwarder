@@ -120,13 +120,21 @@ static void *logger_main(void *arg) {
   }
 }
 
-bool logger_start(const char *path, unsigned int level, bool console) {
+bool logger_start(const char *path, unsigned int level, bool console) {//check 
   static const uint32_t levels[] = {RTE_LOG_ERR, RTE_LOG_WARNING, RTE_LOG_INFO,
                                     RTE_LOG_DEBUG};
   cookie_io_functions_t fns = {.write = stream_write};
+  int err;
 
-  if (started || level >= RTE_DIM(levels))
+  if (started) {
+    fprintf(stderr, "logger already started\n");
     return false;
+  }
+  if (level >= RTE_DIM(levels)) {
+    fprintf(stderr, "invalid log level %u (expected 0-%zu)\n", level,
+            RTE_DIM(levels) - 1);
+    return false;
+  }
 
   log_file = fopen(path, "a");
   if (log_file == NULL) {
@@ -135,6 +143,7 @@ bool logger_start(const char *path, unsigned int level, bool console) {
   }
   stream = fopencookie(NULL, "w", fns);
   if (stream == NULL) {
+    fprintf(stderr, "cannot create the log stream: %s\n", strerror(errno));
     fclose(log_file);
     return false;
   }
@@ -145,7 +154,9 @@ bool logger_start(const char *path, unsigned int level, bool console) {
   echo_console = console;
   accepting = true;
   stopping = false;
-  if (pthread_create(&thread, NULL, logger_main, NULL) != 0) {
+  err = pthread_create(&thread, NULL, logger_main, NULL);
+  if (err != 0) {
+    fprintf(stderr, "cannot start the logger thread: %s\n", strerror(err));
     fclose(stream);
     fclose(log_file);
     accepting = false;

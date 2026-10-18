@@ -63,20 +63,29 @@ static void close_exporters(unsigned int n) {
   }
 }
 
-bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores,
+bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores, //ok
                        unsigned int n) {
-  if (started || n > MAX_QUEUES)
+  if (started){
+    RTE_LOG(ERR, FLOWFWD, "flow export already started\n");
     return false;
+  }
 
+  if (n > MAX_QUEUES){
+    RTE_LOG(ERR, FLOWFWD, "too many queues for flow export: %u\n", n);
+    return false;
+  }
+    
   for (unsigned int i = 0; i < n; i++) {
     char name[48], path[PATH_MAX];
 
     snprintf(name, sizeof(name), "flow_stats_core_%u.csv", lcores[i]);
-    if (!config_dir_file(cfg, name, path, sizeof(path))) {
+    if ((size_t)snprintf(path, sizeof(path), "%s/%s", cfg->export_dir, name) >=
+        sizeof(path)) {
       RTE_LOG(ERR, FLOWFWD, "export file name too long: %s\n", name);
       close_exporters(i);
       return false;
     }
+    
     if (!export_open(&exporters[i], path)) {
       RTE_LOG(ERR, FLOWFWD, "cannot open export file %s: %s\n", path,
               strerror(errno));

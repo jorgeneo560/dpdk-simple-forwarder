@@ -1,6 +1,6 @@
 #!/bin/sh
 # Prepares the machine for DPDK (hugepages, driver binding) and runs flowfwd as root.
-# Usage: ./run.sh [EAL options]    default: -l 0-1 (one worker needs 2 lcores)
+# Usage: ./run.sh [EAL options]    default: -l 0-8 (4 queues need 8 worker lcores plus the main one)
 set -eu
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -36,7 +36,8 @@ for nic in $NICS; do
 done
 
 if [ "$#" -eq 0 ]; then
-	set -- -l 0-4
+	set -- -l 0-8
 fi
 echo "starting flowfwd $*"
+cd "$(dirname "$BIN")"
 exec sudo "$BIN" "$@"

@@ -13,7 +13,7 @@
 
 #define HUGEPAGE_SYSFS "/sys/kernel/mm/hugepages"
 
-static bool read_hugepage_count(const char *dir, const char *file,
+static bool read_hugepage_count(const char *dir, const char *file, //ok
                                 unsigned long *val) {
   char path[256];
   FILE *f;
@@ -28,7 +28,7 @@ static bool read_hugepage_count(const char *dir, const char *file,
   return ok;
 }
 
-bool hugepages_check(int argc, char **argv) {
+bool hugepages_check(int argc, char **argv) { //ok
   uint64_t free_bytes = 0;
   struct dirent *de;
   DIR *dir;
@@ -99,13 +99,15 @@ static unsigned int remove_unused_maps(const char *mount_dir) {
   return removed;
 }
 
-void hugepages_cleanup(void) {
+void hugepages_cleanup(void) { //ok
   unsigned int removed = 0;
   struct mntent *m;
   FILE *f = setmntent("/proc/mounts", "r");
 
-  if (f == NULL)
+  if (f == NULL){
     return;
+  }
+    
   while ((m = getmntent(f)) != NULL) {
     if (strcmp(m->mnt_type, "hugetlbfs") == 0) {
       removed += remove_unused_maps(m->mnt_dir);

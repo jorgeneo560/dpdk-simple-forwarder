@@ -18,7 +18,7 @@ Requirements:
 	•	Forward valid packets to the appropriate interface. OK
 	4.	Performance Considerations:
 	•	Use multiple RX/TX queues to enable parallel processing by multiple worker threads. OK
-	•	Optimize memory access patterns for cache efficiency.
+	•	Optimize memory access patterns for cache efficiency. OK
 	•	Implement basic batch processing for packets. OK
 	5.	Flow Tracking & Affinity:
 	•	Implement flow tracking using a 5-tuple (src IP, dst IP, src port, dst port, protocol). OK
@@ -53,7 +53,7 @@ Expected Deliverables:
 	•	Optional: A brief performance report measuring throughput with different packet sizes.
 
 Bonus Challenges (Optional but Appreciated):
-	1.	Use multiple cores for improved performance (e.g., separate RX and TX threads).
+	1.	Use multiple cores for improved performance (e.g., separate RX and TX threads). OK
 	2.	Support configurable flow table size with graceful handling when capacity is reached. OK
 
 Evaluation Criteria:

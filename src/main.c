@@ -19,7 +19,6 @@
 #include "hugepages.h"
 #include "logger.h"
 #include "nics.h"
-#include "placement.h"
 #include "ports.h"
 
 static struct app_config cfg;
@@ -71,9 +70,7 @@ int main(int argc, char **argv) {
 	return EXIT_FAILURE;
   }
 
-  char log_path[PATH_MAX];
-  if (!config_dir_file(&cfg, "log.txt", log_path, sizeof(log_path)) ||
-      !logger_start(log_path, cfg.log_level, cfg.log_console)) {
+  if (!logger_start(cfg.log_file, cfg.log_level, cfg.log_console)) {
     rte_exit(EXIT_FAILURE, "cannot start the logger\n");
 	return EXIT_FAILURE;
   }
@@ -87,31 +84,26 @@ int main(int argc, char **argv) {
       cfg.export_interval, cfg.pass_arp, cfg.flow_timeout, cfg.cleanup_interval,
       cfg.table_size);
 
-  struct placement plan;
-  if (!placement_plan(&cfg, &plan)) {
-    rte_exit(EXIT_FAILURE, "cannot place the workers\n");
-  }
-
-  if (!ports_start(&cfg, &plan)){
-	rte_exit(EXIT_FAILURE, "cannot set up the ports\n");
-	return EXIT_FAILURE;
+  if (!ports_start(&cfg)){
+    rte_exit(EXIT_FAILURE, "cannot set up the ports\n");
+    return EXIT_FAILURE;
   }
     
 
-  if (!forward_start(&cfg, &plan)){
-	rte_exit(EXIT_FAILURE, "cannot start the forwarding workers\n");
-	return EXIT_FAILURE;
+  if (!forward_start(&cfg)){
+    rte_exit(EXIT_FAILURE, "cannot start the forwarding workers\n");
+    return EXIT_FAILURE;
   }
 
   RTE_LOG(INFO, FLOWFWD, "forwarding, press Ctrl+C to stop\n");
 
-  char worker_load[96];
+  char worker_load[256];
   while (!quit_requested) {
     sleep(1);
     forward_worker_usage(worker_load, sizeof(worker_load));
     RTE_LOG(INFO, FLOWFWD,
             "rx=%" PRIu64 " tx=%" PRIu64 " drops=%" PRIu64 " flows=%" PRIu64
-            " workers=%s\n",
+            " load(rx/tx)=%s\n",
             forward_rx_packets(), forward_tx_packets(), forward_drops(&cfg),
             forward_flows(), worker_load);
   }

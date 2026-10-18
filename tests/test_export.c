@@ -36,8 +36,8 @@ static struct flow_record make_flow(uint8_t family, const char *src,
   r.proto = proto;
   r.src_port = sport;
   r.dst_port = dport;
-  inet_pton(af, src, r.src_ip);
-  inet_pton(af, dst, r.dst_ip);
+  inet_pton(af, src, &r.src_ip);
+  inet_pton(af, dst, &r.dst_ip);
   r.rx_bytes = rx_bytes;
   r.tx_bytes = tx_bytes;
   r.rx_packets = rx_pkts;

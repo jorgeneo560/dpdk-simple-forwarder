@@ -59,7 +59,7 @@ static bool read_driver(const char *dev, char *buf, size_t len) {
   return true;
 }
 
-static bool is_dpdk_driver(const char *name) {
+static bool is_dpdk_driver(const char *name) {//ok
   for (size_t i = 0; i < sizeof(dpdk_drivers) / sizeof(dpdk_drivers[0]); i++) {
     if (strcmp(name, dpdk_drivers[i]) == 0) {
       return true;
@@ -68,13 +68,13 @@ static bool is_dpdk_driver(const char *name) {
   return false;
 }
 
-static int cmp_addr(const void *a, const void *b) {
+static int cmp_addr(const void *a, const void *b) { //ok
   return strcmp(((const struct nic *)a)->addr, ((const struct nic *)b)->addr);
 }
 
 // Returns the number of network devices found, or -1 if the PCI bus cannot be
 // read.
-static int scan_nics(struct nic *nics) {
+static int scan_nics(struct nic *nics) { //ok
   int n = 0;
   struct dirent *de;
   DIR *dir = opendir(PCI_SYSFS);
@@ -111,7 +111,7 @@ static int scan_nics(struct nic *nics) {
   return n;
 }
 
-static void print_nic(const struct nic *nic, const struct app_config *cfg) {
+static void print_nic(const struct nic *nic, const struct app_config *cfg) { //ok
   fprintf(stderr, "  %s [%04x:%04x] driver %-15s", nic->addr, nic->vendor,
           nic->device, nic->drv);
   if (nic->port >= 0)
@@ -131,7 +131,7 @@ static void print_bind_help(unsigned int ready, unsigned int min_ports) {
                   "or use virtual devices (--vdev=...) for testing.\n");
 }
 
-bool nics_check(int argc, char **argv, unsigned int min_ports,
+bool nics_check(int argc, char **argv, unsigned int min_ports, //ok
                 const struct app_config *cfg) {
   struct nic nics[MAX_NICS];
   unsigned int ready = 0;
@@ -145,8 +145,12 @@ bool nics_check(int argc, char **argv, unsigned int min_ports,
   }
 
   nb_nics = scan_nics(nics);
-  if (nb_nics < 0)
+  if (nb_nics < 0){
+    fprintf(stderr, "failed to scan network devices\n");
     return false;
+  }
+
+  //readdir returns the directory entries in no guaranteed order.
   qsort(nics, (size_t)nb_nics, sizeof(nics[0]), cmp_addr);
 
   // DPDK probes devices in PCI address order and numbers its ports in that

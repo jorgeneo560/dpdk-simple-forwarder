@@ -42,8 +42,8 @@ static enum parse_result parse_ipv4(const uint8_t *ip, size_t avail,
 
   info->family = 4;
   info->proto = ip[9];
-  memcpy(info->src_ip, ip + 12, 4);
-  memcpy(info->dst_ip, ip + 16, 4);
+  memcpy(info->src_ip.v4, ip + 12, 4);
+  memcpy(info->dst_ip.v4, ip + 16, 4);
 
   if ((read_be16(ip + 6) & 0x1fff) != 0)
     return PARSE_IP;
@@ -64,8 +64,8 @@ static enum parse_result parse_ipv6(const uint8_t *ip, size_t avail,
 
   info->family = 6;
   info->proto = ip[6];
-  memcpy(info->src_ip, ip + 8, 16);
-  memcpy(info->dst_ip, ip + 24, 16);
+  memcpy(info->src_ip.v6, ip + 8, 16);
+  memcpy(info->dst_ip.v6, ip + 24, 16);
 
   if (info->proto == IPPROTO_TCP || info->proto == IPPROTO_UDP) {
     // A payload length of 0 means a jumbogram, which is not parsed further than

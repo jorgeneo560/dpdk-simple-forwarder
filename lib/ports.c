@@ -20,14 +20,14 @@
 #define MBUF_CACHE 256
 #define MBUF_DATA_LEN RTE_MBUF_DEFAULT_BUF_SIZE
 
-static struct rte_mempool *mbuf_pools[RTE_MAX_NUMA_NODES]; // by socket
+static struct rte_mempool *mbuf_pool;
 
 // A key that repeats every 2 bytes makes RSS hash symmetric (A->B and B->A land
 // on one queue).
 static uint8_t rss_key[128];
 
-static bool start_port(uint16_t port, const struct placement *plan) {
-  const uint16_t nb_queues = (uint16_t)plan->nb_workers;
+static bool start_port(uint16_t port, const struct app_config *cfg) {//check need to study
+  const uint16_t nb_queues = (uint16_t)cfg->nb_queues;
   struct rte_eth_conf conf;
   struct rte_eth_dev_info info;
   uint16_t nb_rxd = RX_DESC, nb_txd = TX_DESC;
@@ -89,8 +89,7 @@ static bool start_port(uint16_t port, const struct placement *plan) {
   txconf.offloads = conf.txmode.offloads;
 
   for (uint16_t q = 0; q < nb_queues; q++) {
-    ret = rte_eth_rx_queue_setup(port, q, nb_rxd, socket, NULL,
-                                 mbuf_pools[plan->sockets[q]]);
+    ret = rte_eth_rx_queue_setup(port, q, nb_rxd, socket, NULL, mbuf_pool);
     if (ret < 0) {
       RTE_LOG(ERR, FLOWFWD, "port %u rxq %u: setup failed: %s\n", port, q,
               rte_strerror(-ret));
@@ -133,7 +132,7 @@ static void stop_port(uint16_t port) {
   rte_eth_dev_close(port);
 }
 
-static bool check_selection(const struct app_config *cfg) {
+static bool check_selection(const struct app_config *cfg) {//ok
   if (rte_eth_dev_count_avail() < NB_PORTS) {
     RTE_LOG(ERR, FLOWFWD, "need %d ports, found %u\n", NB_PORTS,
             rte_eth_dev_count_avail());
@@ -149,41 +148,28 @@ static bool check_selection(const struct app_config *cfg) {
   return true;
 }
 
-// One pool for each socket that has workers, so the NIC writes every packet
-// into the memory of the worker that will read it.
-static bool create_mbuf_pools(const struct placement *plan) {
-  for (unsigned int q = 0; q < plan->nb_workers; q++) {
-    const int socket = plan->sockets[q];
-    unsigned int queues_here = 0, nb_mbufs;
-    char name[RTE_MEMPOOL_NAMESIZE];
+// Buffers can be in the RX ring, in the TX ring, in the ring between the RX and
+// the TX thread (one per port, as one per direction) and in a burst being
+// handled. Every lcore also keeps a private cache: an RX and a TX thread per
+// queue, plus the main lcore.
+static bool create_mbuf_pool(const struct app_config *cfg) {//ok
+  const unsigned int nb_mbufs =
+      NB_PORTS * cfg->nb_queues *
+          (RX_DESC + TX_DESC + RING_SIZE + BURST_SIZE) +
+      MBUF_CACHE * (2 * cfg->nb_queues + 1);
 
-    if (mbuf_pools[socket] != NULL) {
-      continue;
-    }
-    for (unsigned int i = 0; i < plan->nb_workers; i++) {
-      if (plan->sockets[i] == socket) {
-        queues_here++;
-      }
-    }
-    nb_mbufs = NB_PORTS * queues_here * (RX_DESC + TX_DESC + BURST_SIZE) +
-               MBUF_CACHE * (queues_here + 1);
-    snprintf(name, sizeof(name), "MBUF_POOL_%d", socket);
-    mbuf_pools[socket] = rte_pktmbuf_pool_create(
-        name, nb_mbufs, MBUF_CACHE, 0, MBUF_DATA_LEN, socket);
-    if (mbuf_pools[socket] == NULL) {
-      RTE_LOG(ERR, FLOWFWD,
-              "mbuf pool for socket %d failed: %s (are there free hugepages on "
-              "that NUMA node?)\n",
-              socket, rte_strerror(rte_errno));
-      return false;
-    }
-    RTE_LOG(INFO, FLOWFWD, "mbuf pool for socket %d: %u mbufs\n", socket,
-            nb_mbufs);
+  mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", nb_mbufs, MBUF_CACHE, 0,
+                                      MBUF_DATA_LEN, (int)rte_socket_id());
+  if (mbuf_pool == NULL) {
+    RTE_LOG(ERR, FLOWFWD, "mbuf pool creation failed: %s\n",
+            rte_strerror(rte_errno));
+    return false;
   }
+  RTE_LOG(INFO, FLOWFWD, "mbuf pool: %u mbufs\n", nb_mbufs);
   return true;
 }
 
-static bool log_port_roles(const struct app_config *cfg) {
+static bool log_port_roles(const struct app_config *cfg) { //ok
   char in_name[RTE_ETH_NAME_MAX_LEN], out_name[RTE_ETH_NAME_MAX_LEN];
 
   if (rte_eth_dev_get_name_by_port(cfg->in_port, in_name) != 0 ||
@@ -197,20 +183,21 @@ static bool log_port_roles(const struct app_config *cfg) {
   return true;
 }
 
-bool ports_start(const struct app_config *cfg, const struct placement *plan) {
-  if (!check_selection(cfg))
+bool ports_start(const struct app_config *cfg) {
+  if (!check_selection(cfg)){
     return false;
+  }
 
   rss_fill_key(rss_key, sizeof(rss_key), cfg->rss_pattern);
 
-  if (!create_mbuf_pools(plan))
+  if (!create_mbuf_pool(cfg))
     return false;
 
-  if (!start_port(cfg->in_port, plan)) {
+  if (!start_port(cfg->in_port, cfg)) {
     RTE_LOG(ERR, FLOWFWD, "cannot initialise input port %u\n", cfg->in_port);
     return false;
   }
-  if (!start_port(cfg->out_port, plan)) {
+  if (!start_port(cfg->out_port, cfg)) {
     RTE_LOG(ERR, FLOWFWD, "cannot initialise output port %u\n", cfg->out_port);
     return false;
   }

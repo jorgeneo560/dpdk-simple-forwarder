@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -18,11 +19,11 @@
 
 #define PREFETCH_AHEAD 4
 
-/* What the hash table compares. Unused IP bytes are zero (IPv4 uses 4 of 16).
+/* What the hash table compares. The unused bytes of an IPv4 address are zero.
  */
 struct flow_key {
-  uint8_t src_ip[16];
-  uint8_t dst_ip[16];
+  union ip_addr src_ip;
+  union ip_addr dst_ip;
   uint16_t src_port;
   uint16_t dst_port;
   uint8_t family;
@@ -30,19 +31,25 @@ struct flow_key {
   uint8_t pad[2]; // explicit, so the key has no uninitialised bytes
 };
 
+// Written only by the RX thread of the queue.
 struct flow_entry {
-  uint64_t
-      last_seen; // time of the latest packet of the flow, 0 = slot not in use
+  uint64_t last_seen; // time of the latest packet of the flow, 0 = slot not in use
   uint64_t rx_bytes;
-  uint64_t tx_bytes;
   uint64_t rx_packets;
-  uint64_t tx_packets;
+};
+
+// Written only by the TX thread of the queue, in its own array so that the two
+// threads never write to the same cache line.
+struct flow_tx_entry {
+  atomic_uint_fast64_t bytes;
+  atomic_uint_fast64_t packets;
 };
 
 struct flow_table {
   bool pass_arp;
   struct rte_hash *hash;
   struct flow_entry *entries; // indexed by the slot the hash gives to a flow
+  struct flow_tx_entry *tx_entries; // same index as entries
   bool full; // an insert failed: new flows are refused until the cleaner frees
              // room
   unsigned int id;
@@ -54,15 +61,15 @@ struct flow_table {
 
 static void make_flow_key(struct flow_key *key, const struct pkt_info *info) {
   memset(key, 0, sizeof(*key));
-  memcpy(key->src_ip, info->src_ip, sizeof(key->src_ip));
-  memcpy(key->dst_ip, info->dst_ip, sizeof(key->dst_ip));
+  key->src_ip = info->src_ip;
+  key->dst_ip = info->dst_ip;
   key->src_port = info->src_port;
   key->dst_port = info->dst_port;
   key->family = info->family;
   key->proto = info->proto;
 }
 
-struct flow_table *flow_table_create(unsigned int id, int socket,
+struct flow_table *flow_table_create(unsigned int id, int socket, //ok
                                      const struct app_config *cfg) {
   char name[RTE_HASH_NAMESIZE];
   struct rte_hash_parameters params = {
@@ -100,6 +107,14 @@ struct flow_table *flow_table_create(unsigned int id, int socket,
     flow_table_free(table);
     return NULL;
   }
+  table->tx_entries = rte_zmalloc_socket(
+      "flow_tx_entries", cfg->table_size * sizeof(*table->tx_entries),
+      RTE_CACHE_LINE_SIZE, socket);
+  if (table->tx_entries == NULL) {
+    RTE_LOG(ERR, FLOWFWD, "flow table %u: out of memory\n", id);
+    flow_table_free(table);
+    return NULL;
+  }
   return table;
 }
 
@@ -108,11 +123,15 @@ void flow_table_free(struct flow_table *table) {
     return;
   rte_hash_free(table->hash);
   rte_free(table->entries);
+  rte_free(table->tx_entries);
   rte_free(table);
 }
 
-static void track_flow(struct flow_table *table, const struct pkt_info *info,
-                       uint16_t len, bool sent, uint64_t now) {
+// Adds a received packet to its flow and returns the flow slot, or FLOW_NO_SLOT
+// if the table has no room for the flow.
+static int32_t track_flow(struct flow_table *table,
+                          const struct pkt_info *info, uint16_t len,
+                          uint64_t now) {
   struct flow_key key;
   struct flow_entry *entry;
   int slot;
@@ -121,20 +140,35 @@ static void track_flow(struct flow_table *table, const struct pkt_info *info,
   slot = rte_hash_add_key(table->hash, &key);
   if (slot < 0) {
     table->full = true;
-    return;
+    return FLOW_NO_SLOT;
   }
   entry = &table->entries[slot];
-  // last_seen is 0 only for a slot that is not in use.
+  // last_seen is 0 only for a slot that is not in use. No packet of the old
+  // flow can still be on its way to the TX thread: it was idle for the timeout.
   if (entry->last_seen == 0) {
     memset(entry, 0, sizeof(*entry));
+    atomic_store_explicit(&table->tx_entries[slot].bytes, 0,
+                          memory_order_relaxed);
+    atomic_store_explicit(&table->tx_entries[slot].packets, 0,
+                          memory_order_relaxed);
   }
   entry->last_seen = now;
   entry->rx_packets++;
   entry->rx_bytes += len;
-  if (sent) {
-    entry->tx_packets++;
-    entry->tx_bytes += len;
-  }
+  return slot;
+}
+
+void flow_table_count_sent(struct flow_table *table, int32_t slot,
+                           uint16_t len) {
+  struct flow_tx_entry *tx = &table->tx_entries[slot];
+
+  // A single writer, so a plain load and store is enough.
+  atomic_store_explicit(
+      &tx->packets, atomic_load_explicit(&tx->packets, memory_order_relaxed) + 1,
+      memory_order_relaxed);
+  atomic_store_explicit(
+      &tx->bytes, atomic_load_explicit(&tx->bytes, memory_order_relaxed) + len,
+      memory_order_relaxed);
 }
 
 static bool flow_exists(const struct flow_table *table,
@@ -214,13 +248,14 @@ uint16_t flow_table_remove_non_ip_pkts(const struct flow_table *table,
   return kept;
 }
 
-void flow_table_update(struct flow_table *table, const struct flow_batch *batch,
-                       uint16_t nb_sent) {
+void flow_table_track(struct flow_table *table, struct flow_batch *batch) {
   uint64_t now = rte_rdtsc();
 
   for (uint16_t i = 0; i < batch->count; i++) {
     if (is_trackable(&batch->info[i])) {
-      track_flow(table, &batch->info[i], batch->len[i], i < nb_sent, now);
+      batch->slot[i] = track_flow(table, &batch->info[i], batch->len[i], now);
+    } else {
+      batch->slot[i] = FLOW_NO_SLOT;
     }
   }
 }
@@ -256,18 +291,19 @@ size_t flow_table_export_next(struct flow_table *table,
                                              &table->export_next)) >= 0) {
     const struct flow_key *k = key;
     const struct flow_entry *e = &table->entries[slot];
+    struct flow_tx_entry *tx = &table->tx_entries[slot];
     struct flow_record *r = &recs[n++];
 
     r->family = k->family;
     r->proto = k->proto;
     r->src_port = k->src_port;
     r->dst_port = k->dst_port;
-    memcpy(r->src_ip, k->src_ip, sizeof(r->src_ip));
-    memcpy(r->dst_ip, k->dst_ip, sizeof(r->dst_ip));
+    r->src_ip = k->src_ip;
+    r->dst_ip = k->dst_ip;
     r->rx_bytes = e->rx_bytes;
-    r->tx_bytes = e->tx_bytes;
+    r->tx_bytes = atomic_load_explicit(&tx->bytes, memory_order_relaxed);
     r->rx_packets = e->rx_packets;
-    r->tx_packets = e->tx_packets;
+    r->tx_packets = atomic_load_explicit(&tx->packets, memory_order_relaxed);
   }
   return n;
 }

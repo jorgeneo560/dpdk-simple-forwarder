@@ -39,8 +39,8 @@ bool export_write(struct flow_exporter *e, const struct timespec *ts,
     int af = r->family == 6 ? AF_INET6 : AF_INET;
 
     if ((r->family != 4 && r->family != 6) ||
-        inet_ntop(af, r->src_ip, src, sizeof(src)) == NULL ||
-        inet_ntop(af, r->dst_ip, dst, sizeof(dst)) == NULL) {
+        inet_ntop(af, &r->src_ip, src, sizeof(src)) == NULL ||
+        inet_ntop(af, &r->dst_ip, dst, sizeof(dst)) == NULL) {
       errno = EINVAL;
       return false;
     }

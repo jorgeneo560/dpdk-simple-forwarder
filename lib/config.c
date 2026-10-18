@@ -20,7 +20,9 @@
 #define DEFAULT_RSS_PATTERN 0x6d5a
 #define DEFAULT_LOG_LEVEL 2
 #define DEFAULT_LOG_CONSOLE 1
+#define DEFAULT_LOG_FILE "log.txt"
 #define DEFAULT_EXPORT_INTERVAL 10 // seconds
+#define DEFAULT_EXPORT_DIR "."
 #define DEFAULT_PASS_ARP 1
 #define DEFAULT_FLOW_TIMEOUT 60     // seconds
 #define DEFAULT_CLEANUP_INTERVAL 10 // seconds
@@ -78,6 +80,26 @@ static const struct mac_option mac_options[] = {
 
 #define NB_MAC_OPTIONS (sizeof(mac_options) / sizeof(mac_options[0]))
 
+struct string_option {
+  const char *section;
+  const char *key;
+  size_t offset;
+  size_t size; // of the field in struct app_config
+};
+
+#define STRING_OPTION(section, key, field)                                     \
+  {                                                                            \
+    section, key, offsetof(struct app_config, field),                          \
+        sizeof(((struct app_config *)0)->field)                                \
+  }
+
+static const struct string_option string_options[] = {
+    STRING_OPTION("logging", "file", log_file),
+    STRING_OPTION("export", "directory", export_dir),
+};
+
+#define NB_STRING_OPTIONS (sizeof(string_options) / sizeof(string_options[0]))
+
 static char *trim(char *s) {
   char *end;
 
@@ -92,14 +114,16 @@ static char *trim(char *s) {
   return s;
 }
 
-static void set_defaults(struct app_config *cfg) {
+static void set_defaults(struct app_config *cfg) {//ok
   cfg->nb_queues = DEFAULT_NB_QUEUES;
   cfg->in_port = DEFAULT_IN_PORT;
   cfg->out_port = DEFAULT_OUT_PORT;
   cfg->rss_pattern = DEFAULT_RSS_PATTERN;
   cfg->log_level = DEFAULT_LOG_LEVEL;
   cfg->log_console = DEFAULT_LOG_CONSOLE;
+  snprintf(cfg->log_file, sizeof(cfg->log_file), "%s", DEFAULT_LOG_FILE);
   cfg->export_interval = DEFAULT_EXPORT_INTERVAL;
+  snprintf(cfg->export_dir, sizeof(cfg->export_dir), "%s", DEFAULT_EXPORT_DIR);
   cfg->pass_arp = DEFAULT_PASS_ARP;
   cfg->flow_timeout = DEFAULT_FLOW_TIMEOUT;
   cfg->cleanup_interval = DEFAULT_CLEANUP_INTERVAL;
@@ -191,12 +215,27 @@ static bool apply_option(const char *path, int line, const char *section,
     return true;
   }
 
+  for (size_t i = 0; i < NB_STRING_OPTIONS; i++) {
+    const struct string_option *o = &string_options[i];
+
+    if (strcmp(section, o->section) != 0 || strcmp(key, o->key) != 0) {
+      continue;
+    }
+    if (*val == '\0' || strlen(val) >= o->size) {
+      fprintf(stderr, "%s:%d: invalid value for %s (expected 1-%zu characters)\n",
+              path, line, key, o->size - 1);
+      return false;
+    }
+    snprintf((char *)cfg + o->offset, o->size, "%s", val);
+    return true;
+  }
+
   fprintf(stderr, "%s:%d: unknown option '%s' in section [%s]\n", path, line,
           key, section);
   return false;
 }
 
-static bool load_file(const char *path, struct app_config *cfg) {
+static bool load_file(const char *path, struct app_config *cfg) {//ok
   char buf[256], section[MAX_SECTION_LEN] = "";
   int line = 0;
   bool ok = true;
@@ -223,11 +262,13 @@ static bool load_file(const char *path, struct app_config *cfg) {
     }
 
     hash = strchr(buf, '#');
-    if (hash != NULL)
+    if (hash != NULL){
       *hash = '\0';
+    }
     key = trim(buf);
-    if (*key == '\0')
+    if (*key == '\0'){
       continue;
+    }
 
     if (*key == '[') {
       size_t n = strlen(key);
@@ -273,37 +314,32 @@ static bool load_file(const char *path, struct app_config *cfg) {
   return ok;
 }
 
-static bool default_path(char *buf, size_t len) {
+static bool default_path(char *buf, size_t len) {//ok
   char binary[PATH_MAX];
   ssize_t n =
       readlink("/proc/self/exe", binary,
                sizeof(binary) - 1); // get the path of the current executable
-  char *slash;
+  
 
-  if (n < 0 || (size_t)n == sizeof(binary) - 1)
+  if (n < 0 || (size_t)n == sizeof(binary) - 1){
     return false;
+  }
+
+  char *slash;
   binary[n] = '\0';
   slash = strrchr(binary, '/');
-  if (slash == NULL)
+  if (slash == NULL){
     return false;
+  }
+    
   *slash = '\0';
   return (size_t)snprintf(buf, len, "%s/%s", binary, CONFIG_FILE_NAME) < len;
 }
 
-bool config_load(struct app_config *cfg) {
+bool config_load(struct app_config *cfg) {//ok
   if (!default_path(cfg->path, sizeof(cfg->path))) {
     fprintf(stderr, "cannot locate the binary's directory\n");
     return false;
   }
   return load_file(cfg->path, cfg);
-}
-
-bool config_dir_file(const struct app_config *cfg, const char *name, char *buf,
-                     size_t len) {
-  const char *slash = strrchr(cfg->path, '/');
-  int dir_len = slash != NULL ? (int)(slash - cfg->path) : 0;
-
-  if (slash == NULL)
-    return false;
-  return (size_t)snprintf(buf, len, "%.*s/%s", dir_len, cfg->path, name) < len;
 }

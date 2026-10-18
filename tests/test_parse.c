@@ -79,8 +79,8 @@ static void check_flow(const char *name, const uint8_t *buf, size_t len,
   inet_pton(af, dst, want_dst);
   ok = parse_packet(buf, len, &info) == PARSE_IP && info.family == family &&
        info.proto == proto && info.src_port == sport &&
-       info.dst_port == dport && memcmp(info.src_ip, want_src, 16) == 0 &&
-       memcmp(info.dst_ip, want_dst, 16) == 0;
+       info.dst_port == dport && memcmp(&info.src_ip, want_src, 16) == 0 &&
+       memcmp(&info.dst_ip, want_dst, 16) == 0;
   CHECK(ok, name);
 }
 
