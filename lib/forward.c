@@ -46,7 +46,9 @@ struct queue_args {
 static struct queue_args queue_args[MAX_QUEUES];
 static struct rte_ring *forward_rings[MAX_QUEUES];
 static struct rte_ring *reverse_rings[MAX_QUEUES];
-static atomic_bool quit;
+static atomic_bool rx_quit; // the RX threads stop first
+static atomic_bool tx_quit; // the TX threads stop when their rings are empty
+static unsigned int rx_lcore_ids[MAX_QUEUES], tx_lcore_ids[MAX_QUEUES];
 
 // One per RX thread, written only by it and read by the main thread. Each one
 // fills its own cache lines, so threads never share a line.
@@ -64,6 +66,7 @@ struct rx_stats {
 // The same for a TX thread.
 struct tx_stats {
   atomic_uint_fast64_t tx_packets;
+  atomic_uint_fast64_t tx_drops; // packets the NIC did not accept
   atomic_uint_fast64_t busy_cycles;
   atomic_uint_fast64_t total_cycles;
 } __rte_cache_aligned;
@@ -112,7 +115,7 @@ static uint16_t receive_burst(const struct queue_args *args, uint16_t from,
 
   struct flow_batch batch;
   struct tx_item items[BURST_SIZE];
-  unsigned int nb_queued;
+  unsigned int nb_items = 0, nb_queued, full_drops = 0;
   uint16_t nb_kept =
       flow_table_remove_non_ip_pkts(args->table, bufs, nb_rx, &batch);
 
@@ -128,14 +131,24 @@ static uint16_t receive_burst(const struct queue_args *args, uint16_t from,
   flow_table_track(args->table, &batch);
 
   for (uint16_t i = 0; i < nb_kept; i++) {
-    items[i] = (struct tx_item){bufs[i], batch.slot[i], batch.gen[i],
-                                batch.len[i]};
+    if (batch.slot[i] == FLOW_DROP) {
+      rte_pktmbuf_free(bufs[i]);
+      full_drops++;
+    } else {
+      items[nb_items++] = (struct tx_item){bufs[i], batch.slot[i], batch.gen[i],
+                                           batch.len[i]};
+    }
+  }
+  if (full_drops > 0) {
+    add_stat(&stats->table_drops, full_drops);
   }
   nb_queued =
-      rte_ring_enqueue_burst_elem(ring, items, sizeof(items[0]), nb_kept, NULL);
-  if (nb_queued < nb_kept) {
-    rte_pktmbuf_free_bulk(&bufs[nb_queued], nb_kept - nb_queued);
-    add_stat(&stats->ring_drops, nb_kept - nb_queued);
+      rte_ring_enqueue_burst_elem(ring, items, sizeof(items[0]), nb_items, NULL);
+  for (unsigned int i = nb_queued; i < nb_items; i++) {
+    rte_pktmbuf_free(items[i].mbuf);
+  }
+  if (nb_queued < nb_items) {
+    add_stat(&stats->ring_drops, nb_items - nb_queued);
   }
   return nb_rx;
 }
@@ -168,6 +181,7 @@ static uint16_t send_burst(const struct queue_args *args, struct rte_ring *ring,
   }
   if (nb_tx < n) {
     rte_pktmbuf_free_bulk(&bufs[nb_tx], n - nb_tx);
+    add_stat(&stats->tx_drops, n - nb_tx);
   }
   return (uint16_t)n;
 }
@@ -213,7 +227,7 @@ static int rx_main(void *arg) {
           args->queue, args->in_port, args->out_port);
   last = rte_rdtsc();
   next_export = last + export_cycles;
-  while (!atomic_load_explicit(&quit, memory_order_relaxed)) {
+  while (!atomic_load_explicit(&rx_quit, memory_order_relaxed)) {
     unsigned int handled = receive_burst(args, args->in_port,
                                          args->forward_ring, args->forward_mac);
     uint64_t now;
@@ -239,14 +253,16 @@ static int rx_main(void *arg) {
     atomic_store_explicit(&stats->flows, flow_table_count(args->table),
                           memory_order_relaxed);
   }
-  // Last export, so the flows of the final interval are not lost.
-  export_pass_start(&export_pass, args->table);
-  while (export_pass.active) {
-    export_pass_step(&export_pass, args->queue, args->table);
-    rte_pause();
-  }
   RTE_LOG(DEBUG, FLOWFWD, "RX thread stopped: queue %u\n", args->queue);
   return 0;
+}
+
+// After the stop request the TX thread keeps going until its rings are empty (the
+// RX threads have already stopped, so nothing is added), so every accepted
+// packet is sent or counted as dropped.
+static bool rings_empty(const struct queue_args *args) {
+  return rte_ring_empty(args->forward_ring) &&
+         rte_ring_empty(args->reverse_ring);
 }
 
 static int tx_main(void *arg) {
@@ -257,7 +273,8 @@ static int tx_main(void *arg) {
   RTE_LOG(DEBUG, FLOWFWD, "TX thread started: queue %u, ports %u <-> %u\n",
           args->queue, args->in_port, args->out_port);
   last = rte_rdtsc();
-  while (!atomic_load_explicit(&quit, memory_order_relaxed)) {
+  while (!atomic_load_explicit(&tx_quit, memory_order_relaxed) ||
+         !rings_empty(args)) {
     unsigned int handled = send_burst(args, args->forward_ring, args->out_port);
     uint64_t now;
 
@@ -400,6 +417,10 @@ bool forward_start(const struct app_config *cfg) {
   }
 
   nb_queues = nb;
+  memcpy(rx_lcore_ids, rx_lcores, nb * sizeof(rx_lcores[0]));
+  memcpy(tx_lcore_ids, tx_lcores, nb * sizeof(tx_lcores[0]));
+  atomic_store(&rx_quit, false);
+  atomic_store(&tx_quit, false);
   export_cycles = rte_get_tsc_hz() * cfg->export_interval;
 
   if (!create_flow_tables(cfg, rx_lcores, nb))
@@ -450,11 +471,32 @@ bool forward_start(const struct app_config *cfg) {
   return true;
 }
 
-void forward_stop(void) {
-  unsigned int lcore;
+// The last export, made when all threads have stopped, so the flows of the final
+// interval are in the files with their final counters.
+static void final_export(void) {
+  for (unsigned int q = 0; q < nb_queues; q++) {
+    struct export_pass pass;
 
-  atomic_store(&quit, true);
-  RTE_LCORE_FOREACH_WORKER(lcore) { rte_eal_wait_lcore(lcore); }
+    export_pass_start(&pass, flow_tables[q]);
+    while (pass.active) {
+      export_pass_step(&pass, (uint16_t)q, flow_tables[q]);
+      rte_pause();
+    }
+  }
+}
+
+// Order: the RX threads stop reading, the TX threads send what is left in the
+// rings and stop, then the last export is written.
+void forward_stop(void) {
+  atomic_store(&rx_quit, true);
+  for (unsigned int q = 0; q < nb_queues; q++) {
+    rte_eal_wait_lcore(rx_lcore_ids[q]);
+  }
+  atomic_store(&tx_quit, true);
+  for (unsigned int q = 0; q < nb_queues; q++) {
+    rte_eal_wait_lcore(tx_lcore_ids[q]);
+  }
+  final_export();
   flow_export_stop();
   free_rings();
   free_flow_tables();
@@ -494,6 +536,8 @@ uint64_t forward_drops(const struct app_config *cfg) {
                                   memory_order_relaxed);
     drops +=
         atomic_load_explicit(&rx_stats[i].ring_drops, memory_order_relaxed);
+    drops +=
+        atomic_load_explicit(&tx_stats[i].tx_drops, memory_order_relaxed);
   }
   return drops;
 }

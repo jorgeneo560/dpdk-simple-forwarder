@@ -36,8 +36,9 @@ uint64_t forward_tx_packets(void);
  *
  * Counts the packets dropped by the NICs before the workers saw them (receive
  * queue full, imissed; mbuf pool exhausted, rx_nombuf; summed over both ports)
- * plus the packets dropped because a flow table was full or because a ring
- * between an RX and a TX thread was full. A rising value means the threads
+ * plus the packets dropped because a flow table was full, because a ring
+ * between an RX and a TX thread was full, or because the NIC did not accept
+ * them for sending. A rising value means the threads
  * cannot keep up or the tables are too small.
  *
  * @param cfg Configuration with the port ids.

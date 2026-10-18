@@ -131,8 +131,8 @@ void flow_table_free(struct flow_table *table) {
   rte_free(table);
 }
 
-// Adds a received packet to its flow and returns the flow slot, or FLOW_NO_SLOT
-// if the table has no room for the flow. *gen is the generation of the slot.
+// Adds a received packet to its flow and returns the flow slot, or FLOW_DROP if
+// the table has no room for the flow. *gen is the generation of the slot.
 static int32_t track_flow(struct flow_table *table,
                           const struct pkt_info *info, uint16_t len,
                           uint64_t now, uint32_t *gen) {
@@ -141,11 +141,12 @@ static int32_t track_flow(struct flow_table *table,
   struct flow_tx_entry *tx;
   int slot;
 
+  *gen = 0;
   make_flow_key(&key, info);
   slot = rte_hash_add_key(table->hash, &key);
   if (slot < 0) {
     table->full = true;
-    return FLOW_NO_SLOT;
+    return FLOW_DROP;
   }
   entry = &table->entries[slot];
   tx = &table->tx_entries[slot];

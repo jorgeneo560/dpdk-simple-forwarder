@@ -38,6 +38,10 @@ void flow_table_free(struct flow_table *table);
 /** Slot value of a packet that is not tracked in the table. */
 #define FLOW_NO_SLOT (-1)
 
+/** Slot value of a packet whose flow does not fit in the full table: the caller
+ *  has to drop it. */
+#define FLOW_DROP (-2)
+
 /**
  * Headers of the packets kept by flow_table_remove_non_ip_pkts(), in the same
  * order as the packets.
@@ -75,9 +79,10 @@ uint16_t flow_table_remove_non_ip_pkts(const struct flow_table *table,
  *
  * Adds the TCP and UDP flows to the table and counts each packet in its flow. The
  * flow slot of each packet is saved in batch->slot, so the TX thread can count
- * the packet as sent later. A packet that is not tracked (not TCP or UDP, or the table
- * has no room for its flow, which marks the table full, see step 1) gets
- * FLOW_NO_SLOT.
+ * the packet as sent later. A packet that is not tracked (not TCP or UDP) gets
+ * FLOW_NO_SLOT. A packet whose flow does not fit in the table gets FLOW_DROP
+ * and marks the table full, see step 1: the caller drops it, like the packets
+ * of new flows that step 1 already drops while the table is full.
  *
  * @param table Table of the queue.
  * @param batch Result of flow_table_remove_non_ip_pkts().
