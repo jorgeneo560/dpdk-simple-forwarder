@@ -36,10 +36,13 @@ struct flow_entry {
   uint64_t last_seen; // time of the latest packet of the flow, 0 = slot not in use
   uint64_t rx_bytes;
   uint64_t rx_packets;
+  uint64_t tx_bytes_base;   // tx counters of the slot when the flow was created
+  uint64_t tx_packets_base;
 };
 
 // Written only by the TX thread of the queue, in its own array so that the two
-// threads never write to the same cache line.
+// threads never write to the same cache line. Never reset: the RX thread notes
+// the values when a flow is created and the export subtracts them.
 struct flow_tx_entry {
   atomic_uint_fast64_t bytes;
   atomic_uint_fast64_t packets;
@@ -154,8 +157,9 @@ static int32_t track_flow(struct flow_table *table,
         &tx->gen, atomic_load_explicit(&tx->gen, memory_order_relaxed) + 1,
         memory_order_release);
     memset(entry, 0, sizeof(*entry));
-    atomic_store_explicit(&tx->bytes, 0, memory_order_relaxed);
-    atomic_store_explicit(&tx->packets, 0, memory_order_relaxed);
+    entry->tx_bytes_base = atomic_load_explicit(&tx->bytes, memory_order_relaxed);
+    entry->tx_packets_base =
+        atomic_load_explicit(&tx->packets, memory_order_relaxed);
   }
   entry->last_seen = now;
   entry->rx_packets++;
@@ -313,9 +317,11 @@ size_t flow_table_export_next(struct flow_table *table,
     r->src_ip = k->src_ip;
     r->dst_ip = k->dst_ip;
     r->rx_bytes = e->rx_bytes;
-    r->tx_bytes = atomic_load_explicit(&tx->bytes, memory_order_relaxed);
+    r->tx_bytes = atomic_load_explicit(&tx->bytes, memory_order_relaxed) -
+                  e->tx_bytes_base;
     r->rx_packets = e->rx_packets;
-    r->tx_packets = atomic_load_explicit(&tx->packets, memory_order_relaxed);
+    r->tx_packets = atomic_load_explicit(&tx->packets, memory_order_relaxed) -
+                    e->tx_packets_base;
   }
   return n;
 }
