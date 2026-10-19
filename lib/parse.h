@@ -14,13 +14,14 @@ enum parse_result {
   PARSE_MALFORMED, ///< truncated or inconsistent headers
 };
 
-/** What parse_packet() extracts. All fields are zero unless the packet is IP. */
+/** What parse_packet() extracts. All fields are zero unless the packet is IP.
+ */
 struct pkt_info {
-  uint16_t ether_type; ///< after any VLAN tags (also set for ARP and other)
-  uint8_t family;      ///< 4 or 6
-  uint8_t proto;       ///< IP protocol (IPv6: the next-header field)
-  uint16_t src_port;   ///< host byte order; 0 when the protocol has no ports
-  uint16_t dst_port;   ///< host byte order
+  uint16_t ether_type;  ///< after any VLAN tags (also set for ARP and other)
+  uint8_t family;       ///< 4 or 6
+  uint8_t proto;        ///< IP protocol (IPv6: the next-header field)
+  uint16_t src_port;    ///< host byte order; 0 when the protocol has no ports
+  uint16_t dst_port;    ///< host byte order
   union ip_addr src_ip; ///< valid member given by family; zero unless IP
   union ip_addr dst_ip;
 };

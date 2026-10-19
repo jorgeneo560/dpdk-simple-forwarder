@@ -60,6 +60,6 @@ uint64_t forward_flows(void);
  * @param buf Receives the text.
  * @param len Size of buf.
  */
-void forward_worker_usage(char *buf, size_t len);
+void forward_load(char *buf, size_t len);
 
 #endif

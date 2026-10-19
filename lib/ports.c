@@ -26,7 +26,7 @@ static struct rte_mempool *mbuf_pool;
 // on one queue).
 static uint8_t rss_key[128];
 
-static bool start_port(uint16_t port, const struct app_config *cfg) {//check need to study
+static bool start_port(uint16_t port, const struct app_config *cfg) {
   const uint16_t nb_queues = (uint16_t)cfg->nb_queues;
   struct rte_eth_conf conf;
   struct rte_eth_dev_info info;
@@ -111,9 +111,10 @@ static bool start_port(uint16_t port, const struct app_config *cfg) {//check nee
   }
 
   ret = rte_eth_promiscuous_enable(port);
-  if (ret != 0)
+  if (ret != 0) {
     RTE_LOG(WARNING, FLOWFWD, "port %u: promiscuous enable failed: %s\n", port,
             rte_strerror(-ret));
+  }
 
   struct rte_ether_addr mac;
   if (rte_eth_macaddr_get(port, &mac) == 0) {
@@ -132,7 +133,7 @@ static void stop_port(uint16_t port) {
   rte_eth_dev_close(port);
 }
 
-static bool check_selection(const struct app_config *cfg) {//ok
+static bool check_selection(const struct app_config *cfg) {
   if (rte_eth_dev_count_avail() < NB_PORTS) {
     RTE_LOG(ERR, FLOWFWD, "need %d ports, found %u\n", NB_PORTS,
             rte_eth_dev_count_avail());
@@ -152,10 +153,9 @@ static bool check_selection(const struct app_config *cfg) {//ok
 // the TX thread (one per port, as one per direction) and in a burst being
 // handled. Every lcore also keeps a private cache: an RX and a TX thread per
 // queue, plus the main lcore.
-static bool create_mbuf_pool(const struct app_config *cfg) {//ok
+static bool create_mbuf_pool(const struct app_config *cfg) {
   const unsigned int nb_mbufs =
-      NB_PORTS * cfg->nb_queues *
-          (RX_DESC + TX_DESC + RING_SIZE + BURST_SIZE) +
+      NB_PORTS * cfg->nb_queues * (RX_DESC + TX_DESC + RING_SIZE + BURST_SIZE) +
       MBUF_CACHE * (2 * cfg->nb_queues + 1);
 
   mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", nb_mbufs, MBUF_CACHE, 0,
@@ -169,7 +169,7 @@ static bool create_mbuf_pool(const struct app_config *cfg) {//ok
   return true;
 }
 
-static bool log_port_roles(const struct app_config *cfg) { //ok
+static bool log_port_roles(const struct app_config *cfg) {
   char in_name[RTE_ETH_NAME_MAX_LEN], out_name[RTE_ETH_NAME_MAX_LEN];
 
   if (rte_eth_dev_get_name_by_port(cfg->in_port, in_name) != 0 ||
@@ -184,14 +184,15 @@ static bool log_port_roles(const struct app_config *cfg) { //ok
 }
 
 bool ports_start(const struct app_config *cfg) {
-  if (!check_selection(cfg)){
+  if (!check_selection(cfg)) {
     return false;
   }
 
   rss_fill_key(rss_key, sizeof(rss_key), cfg->rss_pattern);
 
-  if (!create_mbuf_pool(cfg))
+  if (!create_mbuf_pool(cfg)) {
     return false;
+  }
 
   if (!start_port(cfg->in_port, cfg)) {
     RTE_LOG(ERR, FLOWFWD, "cannot initialise input port %u\n", cfg->in_port);

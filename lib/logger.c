@@ -83,18 +83,20 @@ static void write_msg(const struct log_msg *m) {
 
     localtime_r(&m->ts.tv_sec, &tm);
     strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tm);
-    if (m->lcore == LCORE_ID_ANY)
+    if (m->lcore == LCORE_ID_ANY) {
       snprintf(who, sizeof(who), "other");
-    else
+    } else {
       snprintf(who, sizeof(who), "lcore %u", m->lcore);
+    }
     fprintf(log_file, "%s.%03ld [%s] ", stamp, m->ts.tv_nsec / 1000000, who);
   }
   fwrite(m->text, 1, m->len, log_file);
   fflush(log_file);
   line_open = !ends_line;
 
-  if (echo_console)
+  if (echo_console) {
     fwrite(m->text, 1, m->len, stderr);
+  }
 }
 
 static void *logger_main(void *arg) {
@@ -120,7 +122,7 @@ static void *logger_main(void *arg) {
   }
 }
 
-bool logger_start(const char *path, unsigned int level, bool console) {//check 
+bool logger_start(const char *path, unsigned int level, bool console) {
   static const uint32_t levels[] = {RTE_LOG_ERR, RTE_LOG_WARNING, RTE_LOG_INFO,
                                     RTE_LOG_DEBUG};
   cookie_io_functions_t fns = {.write = stream_write};
@@ -177,8 +179,9 @@ bool logger_start(const char *path, unsigned int level, bool console) {//check
 }
 
 void logger_stop(void) {
-  if (!started)
+  if (!started) {
     return;
+  }
   started = false;
 
   rte_openlog_stream(NULL);
@@ -190,9 +193,11 @@ void logger_stop(void) {
   pthread_mutex_unlock(&lock);
   pthread_join(thread, NULL);
 
-  if (line_open)
+  if (line_open) {
     fputc('\n', log_file);
-  if (dropped > 0)
+  }
+  if (dropped > 0) {
     fprintf(log_file, "%lu log message(s) dropped (queue full)\n", dropped);
+  }
   fclose(log_file);
 }

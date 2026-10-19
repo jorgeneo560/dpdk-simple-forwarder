@@ -21,8 +21,9 @@ static uint16_t read_be16(const uint8_t *p) {
 
 static enum parse_result read_ports(const uint8_t *l4, size_t avail,
                                     struct pkt_info *info) {
-  if (avail < 4)
+  if (avail < 4) {
     return PARSE_MALFORMED;
+  }
   info->src_port = read_be16(l4);
   info->dst_port = read_be16(l4 + 2);
   return PARSE_IP;
@@ -32,23 +33,27 @@ static enum parse_result parse_ipv4(const uint8_t *ip, size_t avail,
                                     struct pkt_info *info) {
   size_t ihl, total;
 
-  if (avail < IPV4_MIN_HDR || (ip[0] >> 4) != 4)
+  if (avail < IPV4_MIN_HDR || (ip[0] >> 4) != 4) {
     return PARSE_MALFORMED;
+  }
   ihl = (size_t)(ip[0] & 0x0f) * 4;
   total = read_be16(ip + 2);
   // total may be below avail: Ethernet pads short frames.
-  if (ihl < IPV4_MIN_HDR || ihl > avail || total < ihl || total > avail)
+  if (ihl < IPV4_MIN_HDR || ihl > avail || total < ihl || total > avail) {
     return PARSE_MALFORMED;
+  }
 
   info->family = 4;
   info->proto = ip[9];
   memcpy(info->src_ip.v4, ip + 12, 4);
   memcpy(info->dst_ip.v4, ip + 16, 4);
 
-  if ((read_be16(ip + 6) & 0x1fff) != 0)
+  if ((read_be16(ip + 6) & 0x1fff) != 0) {
     return PARSE_IP;
-  if (info->proto == IPPROTO_TCP || info->proto == IPPROTO_UDP)
+  }
+  if (info->proto == IPPROTO_TCP || info->proto == IPPROTO_UDP) {
     return read_ports(ip + ihl, total - ihl, info);
+  }
   return PARSE_IP;
 }
 
@@ -56,11 +61,13 @@ static enum parse_result parse_ipv6(const uint8_t *ip, size_t avail,
                                     struct pkt_info *info) {
   size_t payload, l4_avail;
 
-  if (avail < IPV6_HDR_LEN || (ip[0] >> 4) != 6)
+  if (avail < IPV6_HDR_LEN || (ip[0] >> 4) != 6) {
     return PARSE_MALFORMED;
+  }
   payload = read_be16(ip + 4);
-  if (IPV6_HDR_LEN + payload > avail)
+  if (IPV6_HDR_LEN + payload > avail) {
     return PARSE_MALFORMED;
+  }
 
   info->family = 6;
   info->proto = ip[6];
@@ -83,13 +90,15 @@ enum parse_result parse_packet(const uint8_t *data, size_t len,
   int tags = 0;
 
   memset(info, 0, sizeof(*info));
-  if (len < ETH_HDR_LEN)
+  if (len < ETH_HDR_LEN) {
     return PARSE_MALFORMED;
+  }
 
   type = read_be16(data + 12);
   while (type == ETHERTYPE_VLAN || type == ETHERTYPE_QINQ) {
-    if (tags++ == MAX_VLAN_TAGS || len < off + VLAN_TAG_LEN)
+    if (tags++ == MAX_VLAN_TAGS || len < off + VLAN_TAG_LEN) {
       return PARSE_MALFORMED;
+    }
     type = read_be16(data + off + 2);
     off += VLAN_TAG_LEN;
   }

@@ -43,51 +43,48 @@ void flow_table_free(struct flow_table *table);
 #define FLOW_DROP (-2)
 
 /**
- * Headers of the packets kept by flow_table_remove_non_ip_pkts(), in the same
+ * Headers of the packets kept by flow_table_filter_burst(), in the same
  * order as the packets.
  */
-struct flow_batch {
-  uint16_t count;            ///< number of kept packets
-  uint16_t table_full_drops; ///< packets dropped because their flow did not fit
+struct burst_meta {
+  uint16_t count;                   ///< number of kept packets
   struct pkt_info info[BURST_SIZE]; ///< parsed headers of each kept packet
   uint16_t len[BURST_SIZE];         ///< bytes of each kept packet on the wire
   int32_t slot[BURST_SIZE]; ///< flow slot of each packet, or FLOW_NO_SLOT
-  uint32_t gen[BURST_SIZE]; ///< generation of that slot when the packet was seen
+  uint32_t
+      gen[BURST_SIZE]; ///< generation of that slot when the packet was seen
 };
 
 /**
  * @brief Step 1 (RX thread): filters a received burst.
  *
  * Reads the headers of each packet, keeps the IP packets (and ARP if
- * cfg->pass_arp) and frees the rest. While the table is full (an insert failed
- * and the cleaner has not freed room yet), a TCP or UDP packet of a flow that is not
- * in the table is dropped too and counted in batch->table_full_drops. The kept
- * packets are moved to the front of bufs and their headers are saved in batch.
- *
- * @param table Worker's table.
- * @param bufs  Received packets; the kept ones are compacted to the front.
- * @param n     Number of received packets.
- * @param batch Receives the headers of the kept packets.
- * @return How many packets were kept.
- */
-uint16_t flow_table_remove_non_ip_pkts(const struct flow_table *table,
-                                       struct rte_mbuf **bufs, uint16_t n,
-                                       struct flow_batch *batch);
-
-/**
- * @brief Step 2 (RX thread): counts the packets of the batch as received.
- *
- * Adds the TCP and UDP flows to the table and counts each packet in its flow. The
- * flow slot of each packet is saved in batch->slot, so the TX thread can count
- * the packet as sent later. A packet that is not tracked (not TCP or UDP) gets
- * FLOW_NO_SLOT. A packet whose flow does not fit in the table gets FLOW_DROP
- * and marks the table full, see step 1: the caller drops it, like the packets
- * of new flows that step 1 already drops while the table is full.
+ * cfg->pass_arp) and frees the rest. The kept packets are moved to the front of
+ * bufs and their headers are saved in meta.
  *
  * @param table Table of the queue.
- * @param batch Result of flow_table_remove_non_ip_pkts().
+ * @param bufs  Received packets; the kept ones are compacted to the front.
+ * @param n     Number of received packets.
+ * @param meta Receives the headers of the kept packets.
+ * @return How many packets were kept.
  */
-void flow_table_track(struct flow_table *table, struct flow_batch *batch);
+uint16_t flow_table_filter_burst(const struct flow_table *table,
+                                 struct rte_mbuf **bufs, uint16_t n,
+                                 struct burst_meta *meta);
+
+/**
+ * @brief Step 2 (RX thread): counts the packets of the burst as received.
+ *
+ * Adds the TCP and UDP flows to the table and counts each packet in its flow.
+ * The flow slot of each packet is saved in meta->slot, so the TX thread can
+ * count the packet as sent later. A packet that is not tracked (not TCP or UDP)
+ * gets FLOW_NO_SLOT. A packet whose flow does not fit in the table gets
+ * FLOW_DROP: the caller drops it.
+ *
+ * @param table Table of the queue.
+ * @param meta Result of flow_table_filter_burst().
+ */
+void flow_table_track(struct flow_table *table, struct burst_meta *meta);
 
 /**
  * @brief Step 3 (TX thread): counts one packet as sent in its flow.
@@ -107,7 +104,7 @@ void flow_table_count_sent(struct flow_table *table, int32_t slot, uint32_t gen,
  * Cheap to call on every loop: it scans the table only when
  * cfg->cleanup_interval seconds have passed since the previous scan.
  *
- * @param table Worker's table.
+ * @param table Table of the queue.
  * @param now   Current time, from rte_rdtsc().
  */
 void flow_table_cleanup(struct flow_table *table, uint64_t now);
@@ -123,7 +120,7 @@ void flow_table_export_begin(struct flow_table *table);
  *
  * Copies the 5-tuple and counters of each flow.
  *
- * @param table Worker's table.
+ * @param table Table of the queue.
  * @param recs  Receives the records.
  * @param max   Space available in recs.
  * @return How many were copied, 0 when the pass is finished.

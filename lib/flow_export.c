@@ -44,15 +44,18 @@ static void *writer_main(void *arg) {
     for (unsigned int i = 0; i < nb_slots; i++) {
       struct slot *s = &slots[i];
 
-      if (!atomic_load_explicit(&s->ready, memory_order_acquire))
+      if (!atomic_load_explicit(&s->ready, memory_order_acquire)) {
         continue;
-      if (!export_write(&exporters[i], &s->ts, s->recs, s->n))
+      }
+      if (!export_write(&exporters[i], &s->ts, s->recs, s->n)) {
         RTE_LOG(ERR, FLOWFWD, "export write failed for worker %u: %s\n", i,
                 strerror(errno));
+      }
       atomic_store_explicit(&s->ready, false, memory_order_release);
     }
-    if (stop)
+    if (stop) {
       return NULL;
+    }
     nanosleep(&pause, NULL);
   }
 }
@@ -63,18 +66,18 @@ static void close_exporters(unsigned int n) {
   }
 }
 
-bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores, //ok
+bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores,
                        unsigned int n) {
-  if (started){
+  if (started) {
     RTE_LOG(ERR, FLOWFWD, "flow export already started\n");
     return false;
   }
 
-  if (n > MAX_QUEUES){
+  if (n > MAX_QUEUES) {
     RTE_LOG(ERR, FLOWFWD, "too many queues for flow export: %u\n", n);
     return false;
   }
-    
+
   for (unsigned int i = 0; i < n; i++) {
     char name[48], path[PATH_MAX];
 
@@ -85,7 +88,7 @@ bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores,
       close_exporters(i);
       return false;
     }
-    
+
     if (!export_open(&exporters[i], path)) {
       RTE_LOG(ERR, FLOWFWD, "cannot open export file %s: %s\n", path,
               strerror(errno));
@@ -111,8 +114,9 @@ bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores,
 struct flow_record *flow_export_begin(unsigned int worker) {
   struct slot *s = &slots[worker];
 
-  if (atomic_load_explicit(&s->ready, memory_order_acquire))
+  if (atomic_load_explicit(&s->ready, memory_order_acquire)) {
     return NULL;
+  }
   return s->recs;
 }
 
@@ -126,8 +130,9 @@ void flow_export_commit(unsigned int worker, const struct timespec *ts,
 }
 
 void flow_export_stop(void) {
-  if (!started)
+  if (!started) {
     return;
+  }
   started = false;
 
   atomic_store(&stopping, true);

@@ -49,8 +49,9 @@ static size_t read_lines(const char *path, char lines[][LINE_LEN], size_t max) {
   FILE *f = fopen(path, "r");
   size_t n = 0;
 
-  if (f == NULL)
+  if (f == NULL) {
     return 0;
+  }
   while (n < max && fgets(lines[n], LINE_LEN, f) != NULL) {
     lines[n][strcspn(lines[n], "\n")] = '\0';
     n++;

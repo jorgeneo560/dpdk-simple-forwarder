@@ -13,7 +13,7 @@
 
 #define HUGEPAGE_SYSFS "/sys/kernel/mm/hugepages"
 
-static bool read_hugepage_count(const char *dir, const char *file, //ok
+static bool read_hugepage_count(const char *dir, const char *file,
                                 unsigned long *val) {
   char path[256];
   FILE *f;
@@ -21,14 +21,15 @@ static bool read_hugepage_count(const char *dir, const char *file, //ok
 
   snprintf(path, sizeof(path), HUGEPAGE_SYSFS "/%s/%s", dir, file);
   f = fopen(path, "r");
-  if (f == NULL)
+  if (f == NULL) {
     return false;
+  }
   ok = fscanf(f, "%lu", val) == 1;
   fclose(f);
   return ok;
 }
 
-bool hugepages_check(int argc, char **argv) { //ok
+bool hugepages_check(int argc, char **argv) {
   uint64_t free_bytes = 0;
   struct dirent *de;
   DIR *dir;
@@ -48,13 +49,16 @@ bool hugepages_check(int argc, char **argv) { //ok
   while ((de = readdir(dir)) != NULL) {
     unsigned long size_kb, total, free_pages;
 
-    if (sscanf(de->d_name, "hugepages-%lukB", &size_kb) != 1)
+    if (sscanf(de->d_name, "hugepages-%lukB", &size_kb) != 1) {
       continue;
+    }
     if (!read_hugepage_count(de->d_name, "nr_hugepages", &total) ||
-        !read_hugepage_count(de->d_name, "free_hugepages", &free_pages))
+        !read_hugepage_count(de->d_name, "free_hugepages", &free_pages)) {
       continue;
-    if (total == 0)
+    }
+    if (total == 0) {
       continue;
+    }
 
     fprintf(stderr, "hugepages %lu kB: %lu allocated, %lu free\n", size_kb,
             total, free_pages);
@@ -76,38 +80,42 @@ static unsigned int remove_unused_maps(const char *mount_dir) {
   struct dirent *de;
   DIR *dir = opendir(mount_dir);
 
-  if (dir == NULL)
+  if (dir == NULL) {
     return 0;
+  }
 
   while ((de = readdir(dir)) != NULL) {
     char path[PATH_MAX];
     int fd;
 
-    if (strncmp(de->d_name, "rtemap_", 7) != 0)
+    if (strncmp(de->d_name, "rtemap_", 7) != 0) {
       continue;
+    }
     snprintf(path, sizeof(path), "%s/%s", mount_dir, de->d_name);
     fd = open(path, O_RDWR);
-    if (fd < 0)
+    if (fd < 0) {
       continue;
+    }
     // EAL holds a flock on files in use, so a free lock means no process uses
     // it.
-    if (flock(fd, LOCK_EX | LOCK_NB) == 0 && unlink(path) == 0)
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0 && unlink(path) == 0) {
       removed++;
+    }
     close(fd);
   }
   closedir(dir);
   return removed;
 }
 
-void hugepages_cleanup(void) { //ok
+void hugepages_cleanup(void) {
   unsigned int removed = 0;
   struct mntent *m;
   FILE *f = setmntent("/proc/mounts", "r");
 
-  if (f == NULL){
+  if (f == NULL) {
     return;
   }
-    
+
   while ((m = getmntent(f)) != NULL) {
     if (strcmp(m->mnt_type, "hugetlbfs") == 0) {
       removed += remove_unused_maps(m->mnt_dir);
@@ -115,6 +123,7 @@ void hugepages_cleanup(void) { //ok
   }
   endmntent(f);
 
-  if (removed > 0)
+  if (removed > 0) {
     fprintf(stderr, "released %u unused hugepage file(s)\n", removed);
+  }
 }

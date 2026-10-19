@@ -16,8 +16,9 @@ bool export_open(struct flow_exporter *e, const char *path) {
   int err;
 
   e->file = fopen(path, "a");
-  if (e->file == NULL)
+  if (e->file == NULL) {
     return false;
+  }
 
   if (fstat(fileno(e->file), &st) != 0 ||
       (st.st_size == 0 &&

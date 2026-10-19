@@ -33,8 +33,9 @@ static bool read_attr(const char *dev, const char *attr, char *buf,
 
   snprintf(path, sizeof(path), PCI_SYSFS "/%s/%s", dev, attr);
   f = fopen(path, "r");
-  if (f == NULL)
+  if (f == NULL) {
     return false;
+  }
   if (fgets(buf, (int)len, f) == NULL) {
     fclose(f);
     return false;
@@ -51,15 +52,16 @@ static bool read_driver(const char *dev, char *buf, size_t len) {
 
   snprintf(path, sizeof(path), PCI_SYSFS "/%s/driver", dev);
   n = readlink(path, target, sizeof(target) - 1);
-  if (n < 0)
+  if (n < 0) {
     return false;
+  }
   target[n] = '\0';
   base = strrchr(target, '/');
   snprintf(buf, len, "%.*s", (int)len - 1, base ? base + 1 : target);
   return true;
 }
 
-static bool is_dpdk_driver(const char *name) {//ok
+static bool is_dpdk_driver(const char *name) {
   for (size_t i = 0; i < sizeof(dpdk_drivers) / sizeof(dpdk_drivers[0]); i++) {
     if (strcmp(name, dpdk_drivers[i]) == 0) {
       return true;
@@ -68,13 +70,13 @@ static bool is_dpdk_driver(const char *name) {//ok
   return false;
 }
 
-static int cmp_addr(const void *a, const void *b) { //ok
+static int cmp_addr(const void *a, const void *b) {
   return strcmp(((const struct nic *)a)->addr, ((const struct nic *)b)->addr);
 }
 
 // Returns the number of network devices found, or -1 if the PCI bus cannot be
 // read.
-static int scan_nics(struct nic *nics) { //ok
+static int scan_nics(struct nic *nics) {
   int n = 0;
   struct dirent *de;
   DIR *dir = opendir(PCI_SYSFS);
@@ -88,21 +90,25 @@ static int scan_nics(struct nic *nics) { //ok
     char cls[32], vendor[32], device[32];
     struct nic *nic = &nics[n];
 
-    if (de->d_name[0] == '.')
+    if (de->d_name[0] == '.') {
       continue;
+    }
     if (!read_attr(de->d_name, "class", cls, sizeof(cls)) ||
-        (strtoul(cls, NULL, 16) >> 16) != PCI_CLASS_NET)
+        (strtoul(cls, NULL, 16) >> 16) != PCI_CLASS_NET) {
       continue;
+    }
     if (!read_attr(de->d_name, "vendor", vendor, sizeof(vendor)) ||
-        !read_attr(de->d_name, "device", device, sizeof(device)))
+        !read_attr(de->d_name, "device", device, sizeof(device))) {
       continue;
+    }
 
     memset(nic, 0, sizeof(*nic));
     snprintf(nic->addr, sizeof(nic->addr), "%.15s", de->d_name);
     nic->vendor = (uint16_t)strtoul(vendor, NULL, 16);
     nic->device = (uint16_t)strtoul(device, NULL, 16);
-    if (!read_driver(de->d_name, nic->drv, sizeof(nic->drv)))
+    if (!read_driver(de->d_name, nic->drv, sizeof(nic->drv))) {
       snprintf(nic->drv, sizeof(nic->drv), "none");
+    }
     nic->bound = is_dpdk_driver(nic->drv);
     nic->port = -1;
     n++;
@@ -111,14 +117,15 @@ static int scan_nics(struct nic *nics) { //ok
   return n;
 }
 
-static void print_nic(const struct nic *nic, const struct app_config *cfg) { //ok
+static void print_nic(const struct nic *nic, const struct app_config *cfg) {
   fprintf(stderr, "  %s [%04x:%04x] driver %-15s", nic->addr, nic->vendor,
           nic->device, nic->drv);
-  if (nic->port >= 0)
+  if (nic->port >= 0) {
     fprintf(stderr, " port %d%s", nic->port,
             nic->port == cfg->in_port    ? ": INPUT"
             : nic->port == cfg->out_port ? ": OUTPUT"
                                          : "");
+  }
   fprintf(stderr, "\n");
 }
 
@@ -131,7 +138,7 @@ static void print_bind_help(unsigned int ready, unsigned int min_ports) {
                   "or use virtual devices (--vdev=...) for testing.\n");
 }
 
-bool nics_check(int argc, char **argv, unsigned int min_ports, //ok
+bool nics_check(int argc, char **argv, unsigned int min_ports,
                 const struct app_config *cfg) {
   struct nic nics[MAX_NICS];
   unsigned int ready = 0;
@@ -145,12 +152,12 @@ bool nics_check(int argc, char **argv, unsigned int min_ports, //ok
   }
 
   nb_nics = scan_nics(nics);
-  if (nb_nics < 0){
+  if (nb_nics < 0) {
     fprintf(stderr, "failed to scan network devices\n");
     return false;
   }
 
-  //readdir returns the directory entries in no guaranteed order.
+  // readdir returns the directory entries in no guaranteed order.
   qsort(nics, (size_t)nb_nics, sizeof(nics[0]), cmp_addr);
 
   // DPDK probes devices in PCI address order and numbers its ports in that

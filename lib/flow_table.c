@@ -33,10 +33,11 @@ struct flow_key {
 
 // Written only by the RX thread of the queue.
 struct flow_entry {
-  uint64_t last_seen; // time of the latest packet of the flow, 0 = slot not in use
+  uint64_t
+      last_seen; // time of the latest packet of the flow, 0 = slot not in use
   uint64_t rx_bytes;
   uint64_t rx_packets;
-  uint64_t tx_bytes_base;   // tx counters of the slot when the flow was created
+  uint64_t tx_bytes_base; // tx counters of the slot when the flow was created
   uint64_t tx_packets_base;
 };
 
@@ -54,8 +55,6 @@ struct flow_table {
   struct rte_hash *hash;
   struct flow_entry *entries; // indexed by the slot the hash gives to a flow
   struct flow_tx_entry *tx_entries; // same index as entries
-  bool full; // an insert failed: new flows are refused until the cleaner frees
-             // room
   unsigned int id;
   uint64_t timeout_cycles;
   uint64_t cleanup_cycles;
@@ -73,7 +72,7 @@ static void make_flow_key(struct flow_key *key, const struct pkt_info *info) {
   key->proto = info->proto;
 }
 
-struct flow_table *flow_table_create(unsigned int id, int socket, //ok
+struct flow_table *flow_table_create(unsigned int id, int socket,
                                      const struct app_config *cfg) {
   char name[RTE_HASH_NAMESIZE];
   struct rte_hash_parameters params = {
@@ -123,8 +122,9 @@ struct flow_table *flow_table_create(unsigned int id, int socket, //ok
 }
 
 void flow_table_free(struct flow_table *table) {
-  if (table == NULL)
+  if (table == NULL) {
     return;
+  }
   rte_hash_free(table->hash);
   rte_free(table->entries);
   rte_free(table->tx_entries);
@@ -133,9 +133,8 @@ void flow_table_free(struct flow_table *table) {
 
 // Adds a received packet to its flow and returns the flow slot, or FLOW_DROP if
 // the table has no room for the flow. *gen is the generation of the slot.
-static int32_t track_flow(struct flow_table *table,
-                          const struct pkt_info *info, uint16_t len,
-                          uint64_t now, uint32_t *gen) {
+static int32_t track_flow(struct flow_table *table, const struct pkt_info *info,
+                          uint16_t len, uint64_t now, uint32_t *gen) {
   struct flow_key key;
   struct flow_entry *entry;
   struct flow_tx_entry *tx;
@@ -145,7 +144,6 @@ static int32_t track_flow(struct flow_table *table,
   make_flow_key(&key, info);
   slot = rte_hash_add_key(table->hash, &key);
   if (slot < 0) {
-    table->full = true;
     return FLOW_DROP;
   }
   entry = &table->entries[slot];
@@ -158,7 +156,8 @@ static int32_t track_flow(struct flow_table *table,
         &tx->gen, atomic_load_explicit(&tx->gen, memory_order_relaxed) + 1,
         memory_order_release);
     memset(entry, 0, sizeof(*entry));
-    entry->tx_bytes_base = atomic_load_explicit(&tx->bytes, memory_order_relaxed);
+    entry->tx_bytes_base =
+        atomic_load_explicit(&tx->bytes, memory_order_relaxed);
     entry->tx_packets_base =
         atomic_load_explicit(&tx->packets, memory_order_relaxed);
   }
@@ -179,28 +178,20 @@ void flow_table_count_sent(struct flow_table *table, int32_t slot, uint32_t gen,
   }
   // A single writer, so a plain load and store is enough.
   atomic_store_explicit(
-      &tx->packets, atomic_load_explicit(&tx->packets, memory_order_relaxed) + 1,
+      &tx->packets,
+      atomic_load_explicit(&tx->packets, memory_order_relaxed) + 1,
       memory_order_relaxed);
   atomic_store_explicit(
       &tx->bytes, atomic_load_explicit(&tx->bytes, memory_order_relaxed) + len,
       memory_order_relaxed);
 }
 
-static bool flow_exists(const struct flow_table *table,
-                        const struct pkt_info *info) {
-  struct flow_key key;
-
-  make_flow_key(&key, info);
-  return rte_hash_lookup(table->hash, &key) >= 0;
-}
-
 // Removes the flows that were last seen more than timeout cycles before now.
-static unsigned int expire_flows(struct flow_table *table, uint64_t now,
-                                 uint64_t timeout) {
+static void expire_flows(struct flow_table *table, uint64_t now,
+                         uint64_t timeout) {
   const void *key;
   void *data;
   uint32_t next = 0;
-  unsigned int removed = 0;
   int slot;
 
   while ((slot = rte_hash_iterate(table->hash, &key, &data, &next)) >= 0) {
@@ -209,10 +200,8 @@ static unsigned int expire_flows(struct flow_table *table, uint64_t now,
     }
     if (rte_hash_del_key(table->hash, key) >= 0) {
       table->entries[slot].last_seen = 0;
-      removed++;
     }
   }
-  return removed;
 }
 
 // TCP and UDP flows are tracked: they have ports, so the 5-tuple is complete.
@@ -223,12 +212,11 @@ static bool is_trackable(const struct pkt_info *info) {
          info->src_port != 0 && info->dst_port != 0;
 }
 
-uint16_t flow_table_remove_non_ip_pkts(const struct flow_table *table,
-                                       struct rte_mbuf **bufs, uint16_t n,
-                                       struct flow_batch *batch) {
+uint16_t flow_table_filter_burst(const struct flow_table *table,
+                                 struct rte_mbuf **bufs, uint16_t n,
+                                 struct burst_meta *meta) {
   uint16_t kept = 0;
 
-  batch->table_full_drops = 0;
   for (uint16_t i = 0; i < PREFETCH_AHEAD && i < n; i++) {
     rte_prefetch0(rte_pktmbuf_mtod(bufs[i], void *));
   }
@@ -237,55 +225,45 @@ uint16_t flow_table_remove_non_ip_pkts(const struct flow_table *table,
     enum parse_result res;
     bool keep;
 
-    if (i + PREFETCH_AHEAD < n)
+    if (i + PREFETCH_AHEAD < n) {
       rte_prefetch0(rte_pktmbuf_mtod(bufs[i + PREFETCH_AHEAD], void *));
+    }
 
     // Parsed straight into the next free slot, which a dropped packet leaves
     // unused.
     res = parse_packet(rte_pktmbuf_mtod(bufs[i], const uint8_t *),
-                       rte_pktmbuf_data_len(bufs[i]), &batch->info[kept]);
+                       rte_pktmbuf_data_len(bufs[i]), &meta->info[kept]);
     keep = res == PARSE_IP || (res == PARSE_ARP && table->pass_arp);
-    // Only while the table is full: a packet of a flow that cannot be added is
-    // dropped.
-    if (keep && table->full && is_trackable(&batch->info[kept]) &&
-        !flow_exists(table, &batch->info[kept])) {
-      keep = false;
-      batch->table_full_drops++;
-    }
     if (keep) {
-      batch->len[kept] = (uint16_t)rte_pktmbuf_pkt_len(bufs[i]);
+      meta->len[kept] = (uint16_t)rte_pktmbuf_pkt_len(bufs[i]);
       bufs[kept++] = bufs[i];
     } else {
       rte_pktmbuf_free(bufs[i]);
     }
   }
-  batch->count = kept;
+  meta->count = kept;
   return kept;
 }
 
-void flow_table_track(struct flow_table *table, struct flow_batch *batch) {
+void flow_table_track(struct flow_table *table, struct burst_meta *meta) {
   uint64_t now = rte_rdtsc();
 
-  for (uint16_t i = 0; i < batch->count; i++) {
-    if (is_trackable(&batch->info[i])) {
-      batch->slot[i] = track_flow(table, &batch->info[i], batch->len[i], now,
-                                  &batch->gen[i]);
+  for (uint16_t i = 0; i < meta->count; i++) {
+    if (is_trackable(&meta->info[i])) {
+      meta->slot[i] =
+          track_flow(table, &meta->info[i], meta->len[i], now, &meta->gen[i]);
     } else {
-      batch->slot[i] = FLOW_NO_SLOT;
-      batch->gen[i] = 0;
+      meta->slot[i] = FLOW_NO_SLOT;
+      meta->gen[i] = 0;
     }
   }
 }
 
 void flow_table_cleanup(struct flow_table *table, uint64_t now) {
-  unsigned int removed;
-
-  if (now < table->next_cleanup)
+  if (now < table->next_cleanup) {
     return;
-  removed = expire_flows(table, now, table->timeout_cycles);
-  if (removed > 0) {
-    table->full = false;
   }
+  expire_flows(table, now, table->timeout_cycles);
   table->next_cleanup = now + table->cleanup_cycles;
 }
 

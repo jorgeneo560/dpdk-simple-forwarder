@@ -1,6 +1,4 @@
 // DPDK packet forwarder with per-flow tracking.
-// Step 2: EAL init, mempool, two ports with multi-queue RSS, forwarding
-// workers.
 
 #include <inttypes.h>
 #include <limits.h>
@@ -40,10 +38,10 @@ int main(int argc, char **argv) {
   signal(SIGINT, on_signal);
   signal(SIGTERM, on_signal);
 
-  if (!config_load(&cfg)){
+  if (!config_load(&cfg)) {
     return EXIT_FAILURE;
   }
- 
+
   if (hugepages_check(argc, argv)) {
     hugepages_cleanup();
   } else {
@@ -51,15 +49,13 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
-  if (!nics_check(argc, argv, NB_PORTS, &cfg)){
-	return EXIT_FAILURE;
+  if (!nics_check(argc, argv, NB_PORTS, &cfg)) {
+    return EXIT_FAILURE;
   }
-    
 
   int ret = rte_eal_init(argc, argv);
-  if (ret < 0){
-	rte_exit(EXIT_FAILURE, "EAL init failed: %s\n", rte_strerror(rte_errno));
-	return EXIT_FAILURE;
+  if (ret < 0) {
+    rte_exit(EXIT_FAILURE, "EAL init failed: %s\n", rte_strerror(rte_errno));
   }
   argc -= ret;
   argv += ret;
@@ -67,12 +63,10 @@ int main(int argc, char **argv) {
   if (argc > 1) {
     print_usage(argv[0]);
     rte_exit(EXIT_FAILURE, "unexpected arguments after EAL options\n");
-	return EXIT_FAILURE;
   }
 
   if (!logger_start(cfg.log_file, cfg.log_level, cfg.log_console)) {
     rte_exit(EXIT_FAILURE, "cannot start the logger\n");
-	return EXIT_FAILURE;
   }
 
   RTE_LOG(
@@ -84,28 +78,25 @@ int main(int argc, char **argv) {
       cfg.export_interval, cfg.pass_arp, cfg.flow_timeout, cfg.cleanup_interval,
       cfg.table_size);
 
-  if (!ports_start(&cfg)){
+  if (!ports_start(&cfg)) {
     rte_exit(EXIT_FAILURE, "cannot set up the ports\n");
-    return EXIT_FAILURE;
   }
-    
 
-  if (!forward_start(&cfg)){
-    rte_exit(EXIT_FAILURE, "cannot start the forwarding workers\n");
-    return EXIT_FAILURE;
+  if (!forward_start(&cfg)) {
+    rte_exit(EXIT_FAILURE, "cannot start the forwarding threads\n");
   }
 
   RTE_LOG(INFO, FLOWFWD, "forwarding, press Ctrl+C to stop\n");
 
-  char worker_load[256];
+  char load[256];
   while (!quit_requested) {
     sleep(1);
-    forward_worker_usage(worker_load, sizeof(worker_load));
+    forward_load(load, sizeof(load));
     RTE_LOG(INFO, FLOWFWD,
             "rx=%" PRIu64 " tx=%" PRIu64 " drops=%" PRIu64 " flows=%" PRIu64
             " load(rx/tx)=%s\n",
             forward_rx_packets(), forward_tx_packets(), forward_drops(&cfg),
-            forward_flows(), worker_load);
+            forward_flows(), load);
   }
 
   forward_stop();

@@ -114,7 +114,7 @@ static char *trim(char *s) {
   return s;
 }
 
-static void set_defaults(struct app_config *cfg) {//ok
+static void set_defaults(struct app_config *cfg) {
   cfg->nb_queues = DEFAULT_NB_QUEUES;
   cfg->in_port = DEFAULT_IN_PORT;
   cfg->out_port = DEFAULT_OUT_PORT;
@@ -182,8 +182,9 @@ static bool apply_option(const char *path, int line, const char *section,
     char *end;
     unsigned long v;
 
-    if (strcmp(section, o->section) != 0 || strcmp(key, o->key) != 0)
+    if (strcmp(section, o->section) != 0 || strcmp(key, o->key) != 0) {
       continue;
+    }
 
     errno = 0;
     v = strtoul(val, &end, o->base);
@@ -222,8 +223,9 @@ static bool apply_option(const char *path, int line, const char *section,
       continue;
     }
     if (*val == '\0' || strlen(val) >= o->size) {
-      fprintf(stderr, "%s:%d: invalid value for %s (expected 1-%zu characters)\n",
-              path, line, key, o->size - 1);
+      fprintf(stderr,
+              "%s:%d: invalid value for %s (expected 1-%zu characters)\n", path,
+              line, key, o->size - 1);
       return false;
     }
     snprintf((char *)cfg + o->offset, o->size, "%s", val);
@@ -235,7 +237,7 @@ static bool apply_option(const char *path, int line, const char *section,
   return false;
 }
 
-static bool load_file(const char *path, struct app_config *cfg) {//ok
+static bool load_file(const char *path, struct app_config *cfg) {
   char buf[256], section[MAX_SECTION_LEN] = "";
   int line = 0;
   bool ok = true;
@@ -262,11 +264,11 @@ static bool load_file(const char *path, struct app_config *cfg) {//ok
     }
 
     hash = strchr(buf, '#');
-    if (hash != NULL){
+    if (hash != NULL) {
       *hash = '\0';
     }
     key = trim(buf);
-    if (*key == '\0'){
+    if (*key == '\0') {
       continue;
     }
 
@@ -311,32 +313,40 @@ static bool load_file(const char *path, struct app_config *cfg) {//ok
   }
 
   fclose(f);
+  // The cleaner removes a flow after the timeout. A longer timeout than the
+  // export interval guarantees an export of its final counters first.
+  if (ok && cfg->flow_timeout <= cfg->export_interval) {
+    fprintf(stderr,
+            "%s: [flows] timeout (%us) must be larger than [export] interval "
+            "(%us), so a flow is exported after its last packet\n",
+            path, cfg->flow_timeout, cfg->export_interval);
+    ok = false;
+  }
   return ok;
 }
 
-static bool default_path(char *buf, size_t len) {//ok
+static bool default_path(char *buf, size_t len) {
   char binary[PATH_MAX];
   ssize_t n =
       readlink("/proc/self/exe", binary,
                sizeof(binary) - 1); // get the path of the current executable
-  
 
-  if (n < 0 || (size_t)n == sizeof(binary) - 1){
+  if (n < 0 || (size_t)n == sizeof(binary) - 1) {
     return false;
   }
 
   char *slash;
   binary[n] = '\0';
   slash = strrchr(binary, '/');
-  if (slash == NULL){
+  if (slash == NULL) {
     return false;
   }
-    
+
   *slash = '\0';
   return (size_t)snprintf(buf, len, "%s/%s", binary, CONFIG_FILE_NAME) < len;
 }
 
-bool config_load(struct app_config *cfg) {//ok
+bool config_load(struct app_config *cfg) {
   if (!default_path(cfg->path, sizeof(cfg->path))) {
     fprintf(stderr, "cannot locate the binary's directory\n");
     return false;

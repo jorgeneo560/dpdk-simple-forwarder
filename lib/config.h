@@ -20,14 +20,14 @@ struct app_config {
   char log_file[PATH_MAX];      ///< file the log is written to
   unsigned int export_interval; ///< seconds between flow statistics exports
   char export_dir[PATH_MAX];    ///< directory of the flow statistics CSV files
-  unsigned int pass_arp;        ///< 1 = forward ARP frames (untracked), 0 = drop
-  unsigned int flow_timeout;    ///< seconds without packets before removal
+  unsigned int pass_arp;     ///< 1 = forward ARP frames (untracked), 0 = drop
+  unsigned int flow_timeout; ///< seconds without packets before removal
   unsigned int cleanup_interval; ///< seconds between runs of the flow cleaner
   unsigned int table_size;       ///< flows each worker's table can hold
-  uint8_t forward_dst_mac[6];    ///< destination MAC for input -> output, zero =
-                                 ///< unchanged
-  uint8_t reverse_dst_mac[6];    ///< the same for output -> input
-  char path[PATH_MAX];           ///< file the settings were read from
+  uint8_t forward_dst_mac[6]; ///< destination MAC for input -> output, zero =
+                              ///< unchanged
+  uint8_t reverse_dst_mac[6]; ///< the same for output -> input
+  char path[PATH_MAX];        ///< file the settings were read from
 };
 
 /**
