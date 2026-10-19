@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "export.h"
+#include "writer.h"
 
 #define LINE_LEN 256
 #define MAX_LINES 16
@@ -67,7 +67,7 @@ int main(void) {
   char dir[] = "/tmp/flowfwd_test_XXXXXX";
   char path[128];
   char lines[MAX_LINES][LINE_LEN];
-  struct flow_exporter e;
+  struct writer e;
   struct timespec t1 = {.tv_sec = 1700000000, .tv_nsec = 123000000};
   struct timespec t2 = {.tv_sec = 1700000010, .tv_nsec = 5000000};
   struct flow_record first[2], second[1];
@@ -86,12 +86,12 @@ int main(void) {
   second[0] =
       make_flow(4, "10.0.0.1", "10.0.0.2", 51234, 443, 6, 4000, 2500, 30, 25);
 
-  CHECK(export_open(&e, path), "open creates the file");
-  CHECK(export_write(&e, &t1, first, 2), "write two records (IPv4 and IPv6)");
-  CHECK(export_write(&e, &t2, second, 1),
+  CHECK(writer_open(&e, path), "open creates the file");
+  CHECK(writer_write(&e, &t1, first, 2), "write two records (IPv4 and IPv6)");
+  CHECK(writer_write(&e, &t2, second, 1),
         "write the same flow again at a later time");
-  export_close(&e);
-  export_close(&e);
+  writer_close(&e);
+  writer_close(&e);
 
   n = read_lines(path, lines, MAX_LINES);
   CHECK(n == 4, "file has a header and three rows");
@@ -117,9 +117,9 @@ int main(void) {
               0,
       "later record of the same flow has its own timestamp and counters");
 
-  CHECK(export_open(&e, path), "reopening an existing file works");
-  CHECK(export_write(&e, &t2, second, 1), "append after reopening");
-  export_close(&e);
+  CHECK(writer_open(&e, path), "reopening an existing file works");
+  CHECK(writer_write(&e, &t2, second, 1), "append after reopening");
+  writer_close(&e);
 
   n = read_lines(path, lines, MAX_LINES);
   headers = 0;
@@ -131,14 +131,14 @@ int main(void) {
   CHECK(n == 5, "reopening appends and keeps the earlier rows");
   CHECK(headers == 1, "the header is written only once");
 
-  CHECK(!export_open(&e, "/nonexistent_dir/x.csv") && errno == ENOENT,
+  CHECK(!writer_open(&e, "/nonexistent_dir/x.csv") && errno == ENOENT,
         "opening a path that cannot be created fails with ENOENT");
 
   first[0].family = 5;
-  CHECK(export_open(&e, path), "open for the bad-record test");
-  CHECK(!export_write(&e, &t1, first, 1) && errno == EINVAL,
+  CHECK(writer_open(&e, path), "open for the bad-record test");
+  CHECK(!writer_write(&e, &t1, first, 1) && errno == EINVAL,
         "a record with an invalid IP family is rejected with EINVAL");
-  export_close(&e);
+  writer_close(&e);
   CHECK(read_lines(path, lines, MAX_LINES) == 5,
         "the rejected record wrote nothing");
 

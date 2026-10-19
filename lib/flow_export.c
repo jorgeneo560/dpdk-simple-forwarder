@@ -11,8 +11,8 @@
 #include <rte_log.h>
 
 #include "common.h"
-#include "export.h"
 #include "flow_export.h"
+#include "writer.h"
 
 #define WRITER_POLL_NS                                                         \
   50000000 // the writer looks for new snapshots every 50 ms
@@ -27,7 +27,7 @@ struct slot {
 };
 
 static struct slot slots[MAX_QUEUES];
-static struct flow_exporter exporters[MAX_QUEUES];
+static struct writer writers[MAX_QUEUES];
 static unsigned int nb_slots;
 static pthread_t thread;
 static atomic_bool stopping;
@@ -47,7 +47,7 @@ static void *writer_main(void *arg) {
       if (!atomic_load_explicit(&s->ready, memory_order_acquire)) {
         continue;
       }
-      if (!export_write(&exporters[i], &s->ts, s->recs, s->n)) {
+      if (!writer_write(&writers[i], &s->ts, s->recs, s->n)) {
         RTE_LOG(ERR, FLOWFWD, "export write failed for worker %u: %s\n", i,
                 strerror(errno));
       }
@@ -62,7 +62,7 @@ static void *writer_main(void *arg) {
 
 static void close_exporters(unsigned int n) {
   for (unsigned int i = 0; i < n; i++) {
-    export_close(&exporters[i]);
+    writer_close(&writers[i]);
   }
 }
 
@@ -89,7 +89,7 @@ bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores,
       return false;
     }
 
-    if (!export_open(&exporters[i], path)) {
+    if (!writer_open(&writers[i], path)) {
       RTE_LOG(ERR, FLOWFWD, "cannot open export file %s: %s\n", path,
               strerror(errno));
       close_exporters(i);

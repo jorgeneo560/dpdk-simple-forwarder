@@ -5,13 +5,13 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
-#include "export.h"
+#include "writer.h"
 
 #define CSV_HEADER                                                             \
   "timestamp,src_ip,dst_ip,src_port,dst_port,protocol,rx_bytes,tx_bytes,rx_"   \
   "packets,tx_packets\n"
 
-bool export_open(struct flow_exporter *e, const char *path) {
+bool writer_open(struct writer *e, const char *path) {
   struct stat st;
   int err;
 
@@ -32,7 +32,7 @@ bool export_open(struct flow_exporter *e, const char *path) {
   return true;
 }
 
-bool export_write(struct flow_exporter *e, const struct timespec *ts,
+bool writer_write(struct writer *e, const struct timespec *ts,
                   const struct flow_record *recs, size_t n) {
   for (size_t i = 0; i < n; i++) {
     const struct flow_record *r = &recs[i];
@@ -55,7 +55,7 @@ bool export_write(struct flow_exporter *e, const struct timespec *ts,
   return fflush(e->file) == 0 && !ferror(e->file);
 }
 
-void export_close(struct flow_exporter *e) {
+void writer_close(struct writer *e) {
   if (e->file != NULL) {
     fclose(e->file);
     e->file = NULL;

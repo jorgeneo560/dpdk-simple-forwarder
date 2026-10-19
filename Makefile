@@ -30,23 +30,23 @@ $(BUILD)/%.o: %.c
 -include $(OBJS:.o=.d)
 
 # Unit tests: no DPDK needed, they build only the file they test.
-TEST_EXPORT := $(BUILD)/test_export
+TEST_WRITER := $(BUILD)/test_writer
 TEST_PARSE  := $(BUILD)/test_parse
 TEST_RSS    := $(BUILD)/test_rss
 TEST_CFLAGS := -O0 -g -std=gnu11 $(WARNINGS) -Ilib
 
-test: $(TEST_EXPORT) $(TEST_PARSE) $(TEST_RSS)
-	@echo "  RUN   $(TEST_EXPORT)"
-	$(Q)$(TEST_EXPORT)
+test: $(TEST_WRITER) $(TEST_PARSE) $(TEST_RSS)
+	@echo "  RUN   $(TEST_WRITER)"
+	$(Q)$(TEST_WRITER)
 	@echo "  RUN   $(TEST_PARSE)"
 	$(Q)$(TEST_PARSE)
 	@echo "  RUN   $(TEST_RSS)"
 	$(Q)$(TEST_RSS)
 
-$(TEST_EXPORT): tests/test_export.c lib/export.c lib/export.h lib/flow.h
+$(TEST_WRITER): tests/test_writer.c lib/writer.c lib/writer.h lib/flow.h
 	@mkdir -p $(BUILD)
 	@echo "  CC    $@"
-	$(Q)$(CC) $(TEST_CFLAGS) tests/test_export.c lib/export.c -o $@
+	$(Q)$(CC) $(TEST_CFLAGS) tests/test_writer.c lib/writer.c -o $@
 
 $(TEST_PARSE): tests/test_parse.c lib/parse.c lib/parse.h
 	@mkdir -p $(BUILD)

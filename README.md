@@ -256,7 +256,7 @@ The log file has one line per message with a timestamp and the core that logged 
 
 - `tests/test_parse.c`: the packet parser (Ethernet, VLAN and double VLAN, IPv4 with options,
   IPv6, ports of TCP and UDP, fragments, ARP, malformed frames).
-- `tests/test_export.c`: the CSV writer (header, rows, IPv4 and IPv6 addresses, errors).
+- `tests/test_writer.c`: the CSV writer (header, rows, IPv4 and IPv6 addresses, errors).
 - `tests/test_rss.c`: the RSS key, including the symmetry of the hash when source and
   destination are swapped.
 
@@ -312,7 +312,7 @@ lib/parse.*         Ethernet, VLAN, IPv4, IPv6, TCP and UDP header parser
 lib/flow_table.*    per-queue flow table: filter, tracking, cleaner, export iterator
 lib/forward.*       RX and TX threads, rings, statistics, shutdown order
 lib/flow_export.*   export slots and the writer thread
-lib/export.*        CSV writer
+lib/writer.*        CSV file writer
 lib/logger.*        asynchronous logger
 lib/ip_addr.h       IPv4 or IPv6 address type
 tests/              unit tests
