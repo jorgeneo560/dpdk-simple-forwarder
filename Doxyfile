@@ -1,0 +1,20 @@
+PROJECT_NAME           = "flowfwd"
+PROJECT_BRIEF          = "DPDK packet forwarder with per-flow tracking"
+OUTPUT_DIRECTORY       = docs
+INPUT                  = README.md lib src doc
+FILE_PATTERNS          = *.h *.c *.dox
+USE_MDFILE_AS_MAINPAGE = README.md
+RECURSIVE              = NO
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+OPTIMIZE_OUTPUT_FOR_C  = YES
+SOURCE_BROWSER         = YES
+GENERATE_LATEX         = NO
+HAVE_DOT               = YES
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+PREDEFINED             = __rte_cache_aligned=
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+MARKDOWN_ID_STYLE      = GITHUB
+TOC_INCLUDE_HEADINGS   = 5

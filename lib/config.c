@@ -21,7 +21,7 @@
 #define DEFAULT_LOG_LEVEL 2
 #define DEFAULT_LOG_CONSOLE 1
 #define DEFAULT_LOG_FILE "log.txt"
-#define DEFAULT_EXPORT_INTERVAL 10 // seconds
+#define DEFAULT_EXPORT_INTERVAL 1 // seconds
 #define DEFAULT_EXPORT_DIR "."
 #define DEFAULT_PASS_ARP 1
 #define DEFAULT_FLOW_TIMEOUT 60     // seconds

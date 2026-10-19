@@ -149,7 +149,7 @@ at start with the file name and line number.
 | `[logging]` | `level` | 2 | 0 error, 1 warning, 2 info, 3 debug |
 | `[logging]` | `console` | 1 | 1 also prints log lines on the terminal |
 | `[logging]` | `file` | `log.txt` | Log file (appended). A relative path starts in the directory the program runs from. |
-| `[export]` | `interval` | 10 | Seconds between exports, 1 to 3600 |
+| `[export]` | `interval` | 1 | Seconds between exports, 1 to 3600 |
 | `[export]` | `directory` | `.` | Directory of the CSV files |
 | `[filter]` | `pass_arp` | 1 | 1 forwards ARP frames (untracked), 0 drops them like any other non-IP frame |
 | `[flows]` | `timeout` | 60 | Seconds without packets before a flow is removed. Must be larger than `[export] interval`. |

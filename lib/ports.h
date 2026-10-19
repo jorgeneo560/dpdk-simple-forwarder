@@ -19,7 +19,7 @@
 bool ports_start(const struct app_config *cfg);
 
 /**
- * @brief Stops and closes both ports.
+ * @brief Stops and closes both ports and frees the mbuf pool.
  *
  * @param cfg Configuration with the port ids.
  */

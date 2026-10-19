@@ -209,4 +209,6 @@ bool ports_start(const struct app_config *cfg) {
 void ports_stop(const struct app_config *cfg) {
   stop_port(cfg->in_port);
   stop_port(cfg->out_port);
+  rte_mempool_free(mbuf_pool);
+  mbuf_pool = NULL;
 }

@@ -1,0 +1,316 @@
+/**
+\page architecture How flowfwd works, unit by unit
+
+\tableofcontents
+
+\section arch_overview Overview
+
+`flowfwd` forwards Ethernet frames between two network interfaces and keeps statistics for every TCP and
+UDP flow it sees. A flow is identified by its 5-tuple: source IP, destination IP, source port,
+destination port and protocol.
+
+The work is split in **lanes**. A lane is one RSS queue of each interface and the two threads that serve it:
+
+- the **RX thread** (`rx_main()`) reads the queue of both interfaces, filters and counts the packets and
+  puts them in a ring;
+- the **TX thread** (`tx_main()`) takes the packets out of the ring, sends them on the other interface and
+  counts them as sent.
+
+With `queues = 4` there are 4 lanes, which need `1 + 2 * 4 = 9` cores: the main core and two per lane.
+The NIC picks the queue of a packet with an RSS hash of its 5-tuple. The hash key is symmetric (see
+`rss_fill_key()`), so both directions of a connection reach the same lane and a flow is only ever seen by
+one RX thread. That is why no locks are needed on the data path.
+
+\dot
+digraph lanes {
+  rankdir=LR; node [shape=box, fontsize=10]; edge [fontsize=9];
+  nic0 [label="NIC input\n(port 0)\nqueue q"];
+  nic1 [label="NIC output\n(port 1)\nqueue q"];
+  rx   [label="RX thread q\nrx_main()\nreceive_burst()"];
+  tbl  [label="flow table q\nflow_table_*()", shape=ellipse];
+  fr   [label="forward ring q", shape=cylinder];
+  rr   [label="reverse ring q", shape=cylinder];
+  tx   [label="TX thread q\ntx_main()\nsend_burst()"];
+  nic0 -> rx [label="rx_burst"]; nic1 -> rx [label="rx_burst"];
+  rx -> tbl [label="count rx"]; rx -> fr; rx -> rr;
+  fr -> tx; rr -> tx;
+  tx -> nic1 [label="tx_burst"]; tx -> nic0 [label="tx_burst"];
+  tx -> tbl [label="count tx", style=dashed];
+}
+\enddot
+
+Three more threads exist besides the lanes:
+
+- the **main thread** runs `main()`: setup, a one-second statistics loop, and shutdown;
+- the **export writer thread** (`writer_main()` in flow_export.c) writes the CSV files so the data path never
+  waits for the disk;
+- the **logger thread** (`logger_main()`) writes the log file for the same reason.
+
+\section arch_packet Life of a packet
+
+1. The NIC writes the frame in an mbuf of the pool made by `create_mbuf_pool()` and puts it in the RX queue
+   chosen by the RSS hash.
+2. `rx_main()` loops forever. Each pass it calls `receive_burst()` once for the input interface and once for
+   the output interface. Each call reads up to `BURST_SIZE` (32) frames with `rte_eth_rx_burst()`.
+3. `flow_table_filter_burst()` parses every frame with `parse_packet()`. It keeps IP frames (and ARP if
+   `pass_arp` is on) and frees the rest. The kept frames are moved to the front of the burst and their parsed
+   headers are saved in a `burst_meta`.
+4. If a destination MAC is configured for that direction, `rewrite_dst_mac()` writes it into the IP frames.
+5. `flow_table_track()` counts each TCP or UDP frame in its flow, creating the flow if it is new
+   (`find_or_add_flow()`). It gives back the flow **slot** and its **generation**. Frames of other protocols get the
+   slot `FLOW_NO_SLOT` and are only forwarded. A frame whose flow does not fit in a full table gets
+   `FLOW_DROP`.
+6. `make_items()` builds one `tx_item` per frame (mbuf, slot, generation, length) and frees the `FLOW_DROP`
+   frames. `queue_items()` puts the items in the forward ring (input to output) or the reverse ring (output to
+   input) with `rte_ring_enqueue_burst_elem()`. Items that do not fit are freed and counted as ring drops.
+7. `tx_main()` calls `send_burst()` for each ring. It takes up to 32 items with
+   `rte_ring_dequeue_burst_elem()`, sends them with `rte_eth_tx_burst()`, and for each frame that the NIC
+   accepted calls `flow_table_count_sent()`. Frames the NIC did not accept are freed and counted as TX drops.
+8. `flow_table_count_sent()` adds the frame to the sent counters of the slot, but only if the generation of the
+   slot is still the one the frame was counted with. If the flow expired and the slot was given to another
+   flow in the meantime, the frame is ignored.
+
+\section arch_startup Startup, in the order `main()` does it
+
+| Step | Function | What it does |
+|---|---|---|
+| 1 | `config_load()` | Reads `flowfwd.conf` from the directory of the binary. |
+| 2 | `hugepages_check()` and `hugepages_cleanup()` | Checks that free hugepages exist and removes stale hugepage files. |
+| 3 | `nics_check()` | Checks that two network devices are bound to a DPDK driver and prints which is which. |
+| 4 | `rte_eal_init()` | DPDK's own initialisation (cores, memory, devices). Arguments after the EAL options are rejected. |
+| 5 | `logger_start()` | Starts the logger thread and connects DPDK's logging to it. |
+| 6 | `ports_start()` | Checks the port choice, builds the RSS key, creates the mbuf pool and starts both ports. |
+| 7 | `forward_start()` | Picks the cores, creates the tables, rings and export files, and launches the threads. |
+| 8 | the loop in `main()` | Once a second it logs `rx=`, `tx=`, `drops=`, `flows=` and the load of each thread. |
+
+Any failure in steps 1 to 7 prints the reason and ends the program with a non-zero exit code.
+
+\section arch_shutdown Shutdown
+
+Ctrl+C (SIGINT) or SIGTERM runs `on_signal()`, which only sets a flag. The loop in `main()` sees it and calls
+`forward_stop()`, which stops things in a fixed order so that no packet and no statistic is lost:
+
+1. the RX threads are told to stop reading (`rx_quit`) and are waited for;
+2. the TX threads keep running until both of their rings are empty (`rings_empty()`), then stop (`tx_quit`);
+3. `final_export()` writes every flow with its final counters;
+4. `flow_export_stop()` lets the writer thread finish its last scan and closes the CSV files;
+5. `free_rings()` and `free_flow_tables()` release the memory.
+
+Then `main()` calls `ports_stop()` (stops and closes the ports and frees the mbuf pool), `logger_stop()`,
+`rte_eal_cleanup()` and `hugepages_cleanup()`.
+
+\section arch_rules Who may write what (why there are no locks)
+
+| Data | Written by | Read by |
+|---|---|---|
+| a flow table: hash, `flow_entry` array | the RX thread of its lane only | the same RX thread |
+| `flow_tx_entry` array (sent bytes, packets, generation) | the TX thread of its lane only (the generation is bumped by the RX thread when a slot gets a new flow) | both threads of the lane |
+| rings | one producer (RX thread), one consumer (TX thread) | |
+| `rx_stats`, `tx_stats` counters | their own thread only | the main thread, for the statistics line |
+| export slot | the RX thread fills it, then the writer thread reads it, then it is free again (a `ready` flag with acquire and release ordering) | |
+| log queue | any thread, under a mutex | the logger thread |
+
+The sent counters of a flow are never reset. The RX thread stores their value in the `flow_entry`
+(`tx_bytes_at_start`, `tx_packets_at_start`) when the flow is created, and the export subtracts it. That way the
+RX thread never writes a field that the TX thread writes.
+
+\section arch_counters The numbers on the statistics line
+
+| Value | How it is made |
+|---|---|
+| `rx` | `forward_rx_packets()`: frames read from the NICs, summed over the lanes. |
+| `tx` | `forward_tx_packets()`: frames the NICs accepted for sending. |
+| `drops` | `forward_drops()`: NIC counters (`imissed` and `rx_nombuf` from `port_drops()`) plus frames dropped because the table was full, the ring was full or the NIC did not accept them. |
+| `flows` | `forward_flows()`: flows now in all tables. |
+| `load(rx/tx)` | `forward_load()`: per lane, the share of time the thread spent on iterations that handled packets (`load_percent()`). It is not CPU use: a polling thread always keeps its core busy. |
+
+`rx - tx` is not a loss. Frames removed by the filter (not IP, malformed, or ARP when ARP is off) are
+counted in `rx` but neither in `tx` nor in `drops`.
+
+\section arch_units The units
+
+\subsection unit_main main.c: the program
+
+| Function | Purpose |
+|---|---|
+| `main()` | Runs the startup sequence, the one-second statistics loop and the shutdown sequence described above. |
+| `on_signal()` | Signal handler for SIGINT and SIGTERM. It only sets `quit_requested`. |
+| `print_usage()` | Prints the usage text when arguments remain after the EAL options. |
+
+\subsection unit_config config.c / config.h: the settings
+
+Reads `flowfwd.conf` into a `struct app_config`. The settings are described by three tables (`options`,
+`mac_options`, `string_options`), so adding a setting is one line in a table.
+
+| Function | Purpose |
+|---|---|
+| `config_load()` | Public entry point: finds the file next to the binary and loads it. |
+| `default_path()` | Builds the config path from the location of the running executable (`/proc/self/exe`). |
+| `load_file()` | Reads the file line by line, handles sections, comments and errors (with file and line number), and finally checks that the flow timeout is larger than the export interval. |
+| `set_defaults()` | Fills the struct with the default of every setting before the file is read. |
+| `trim()` | Removes spaces around a string. |
+| `is_known_section()` | Tells whether a `[section]` name exists in the tables. |
+| `apply_option()` | Finds the setting named by a section and key, converts and range-checks the value, and stores it. |
+| `store_value()` | Writes a number into the 2-byte or 4-byte field of the struct that an `option` describes. |
+| `parse_mac()` | Parses `aa:bb:cc:dd:ee:ff` into 6 bytes. |
+
+\subsection unit_hugepages hugepages.c: memory pre-checks
+
+| Function | Purpose |
+|---|---|
+| `hugepages_check()` | Reads the free hugepages from sysfs and fails with a hint if there are none. It passes at once when `--no-huge` is given. |
+| `read_hugepage_count()` | Reads one number (total or free pages) from a sysfs file. |
+| `hugepages_cleanup()` | Looks at every hugetlbfs mount and removes the leftover DPDK files of crashed runs. |
+| `remove_unused_maps()` | Deletes the `rtemap_*` files of one mount that no process holds a lock on. |
+
+\subsection unit_nics nics.c: which network devices DPDK will use
+
+Runs before DPDK starts, reads the PCI bus from sysfs, and tells the user which device will become which DPDK
+port. It is skipped with virtual devices.
+
+| Function | Purpose |
+|---|---|
+| `nics_check()` | Scans the devices, predicts the port ids, prints the list, and fails with a help text if fewer than two devices are bound to a DPDK driver. |
+| `scan_nics()` | Finds the PCI network devices (class 0x02) and reads their vendor, device id and driver. |
+| `read_attr()` | Reads one text attribute of a PCI device from sysfs. |
+| `read_driver()` | Reads the name of the driver a device is bound to. |
+| `is_dpdk_driver()` | True for `vfio-pci`, `uio_pci_generic` and `igb_uio`. |
+| `cmp_addr()` | Sorting rule by PCI address, since DPDK numbers ports in that order. |
+| `print_nic()` | Prints one device and, if it is a port, whether it is INPUT or OUTPUT. |
+| `print_bind_help()` | Prints how to bind devices with `dpdk-devbind.py`. |
+
+\subsection unit_logger logger.c: the asynchronous logger
+
+DPDK's `RTE_LOG` writes to a `FILE` stream. That stream is a custom one (`fopencookie`) that only copies each
+line into a queue, so a thread that logs never waits for the disk. One logger thread empties the queue.
+
+| Function | Purpose |
+|---|---|
+| `logger_start()` | Opens the log file, creates the stream, starts the thread, sets the log level and connects DPDK's logging to the stream. Registers `logger_stop()` with `atexit()`. |
+| `logger_stop()` | Closes the stream, lets the thread write what is queued, joins it and closes the file. Reports how many messages were dropped. |
+| `stream_write()` | Called by stdio from any thread: copies one line into the queue (or counts it as dropped when the queue is full). |
+| `logger_main()` | The logger thread: waits for messages and writes them with `write_msg()`. |
+| `write_msg()` | Writes one message with a timestamp and the core it came from, to the file and optionally to the console. |
+
+\subsection unit_ports ports.c: the network interfaces
+
+| Function | Purpose |
+|---|---|
+| `ports_start()` | Validates the port choice, fills the RSS key, creates the mbuf pool and starts both ports. |
+| `ports_stop()` | Stops and closes both ports and frees the mbuf pool. |
+| `check_selection()` | Checks that two different valid ports exist. |
+| `create_mbuf_pool()` | Creates the packet buffer pool, sized for every place a buffer can sit at the same time (NIC rings, software rings, bursts, per-core caches). |
+| `start_port()` | Configures one port: queue count, RSS with the symmetric key, offloads, descriptors, RX and TX queues, promiscuous mode; then starts it. |
+| `stop_port()` | Stops and closes one port. |
+| `log_port_roles()` | Logs which port is the input and which the output. |
+
+\subsection unit_rss rss.c: the symmetric hash key
+
+| Function | Purpose |
+|---|---|
+| `rss_fill_key()` | Fills the RSS key by repeating a 16-bit pattern. A key that repeats every 2 bytes gives the same hash when source and destination are swapped, so both directions of a flow land on the same queue. |
+
+\subsection unit_parse parse.c / parse.h: reading packet headers
+
+A bounds-checked parser that does not depend on DPDK. It fills a `pkt_info` and returns a `parse_result`:
+`PARSE_IP`, `PARSE_ARP`, `PARSE_OTHER` or `PARSE_MALFORMED`.
+
+| Function | Purpose |
+|---|---|
+| `parse_packet()` | Reads the Ethernet header, skips up to two VLAN tags, then dispatches by EtherType to IPv4, IPv6 or ARP. |
+| `parse_ipv4()` | Validates the header (version, length fields), reads protocol and addresses, and gives ports only for TCP and UDP in the first fragment. |
+| `parse_ipv6()` | Validates the fixed header, reads next-header and addresses, and gives ports for TCP and UDP. Extension headers are not followed. |
+| `read_ports()` | Reads source and destination port from the start of the TCP or UDP header. |
+| `read_be16()` | Reads a 16-bit big-endian value. |
+
+\subsection unit_flow_table flow_table.c / flow_table.h: the flow table of a lane
+
+| Function | Purpose |
+|---|---|
+| `flow_table_create()` | Creates the hash, the `flow_entry` array and the `flow_tx_entry` array in the memory of the lane's socket. |
+| `flow_table_free()` | Frees them. Accepts NULL. |
+| `flow_table_filter_burst()` | Step 1 on the RX thread: parses a burst, keeps IP (and ARP) frames, frees the others, compacts the burst and saves the headers in a `burst_meta`. Prefetches the packet data `PREFETCH_AHEAD` frames ahead. |
+| `flow_table_track()` | Step 2 on the RX thread: counts every kept TCP or UDP frame in its flow and stores slot and generation in the `burst_meta`. |
+| `find_or_add_flow()` | Adds one frame to its flow. A flow found by `rte_hash_add_key()` is updated; a new flow gets a new generation and a reset entry. Returns `FLOW_DROP` when the table is full. |
+| `flow_table_count_sent()` | Step 3 on the TX thread: adds a sent frame to the sent counters of its slot, unless the generation changed. |
+| `flow_table_cleanup()` | Called every loop pass; does real work only when `next_cleanup` has passed. It removes the flows idle for longer than the timeout. |
+| `expire_flows()` | Walks the hash and deletes the flows whose last packet is older than the timeout. |
+| `next_cleanup()` | Computes the time of the next cleaner scan from `cleanup_interval`. |
+| `flow_table_count()` | Number of flows now in the table. |
+| `flow_table_export_begin()` | Starts a new pass over the flows. |
+| `flow_table_export_next()` | Copies the next chunk of flows (5-tuple and counters) into `flow_record` structs; the table keeps the position between calls. Returns 0 when the pass is finished. |
+| `is_trackable()` | True for TCP and UDP frames that have ports. ICMP and non-first fragments are forwarded but not tracked. |
+| `make_flow_key()` | Builds the hash key (5-tuple, with explicit padding so no byte is uninitialised). |
+
+\subsection unit_forward forward.c / forward.h: the lanes and the threads
+
+| Function | Purpose |
+|---|---|
+| `forward_start()` | Starts the forwarding: picks lcores, creates resources, launches the threads. |
+| `forward_stop()` | Stops it in the safe order (see \ref arch_shutdown). |
+| `pick_lcores()` | Takes the worker cores in pairs, the first of a pair for the RX thread and the second for the TX thread. Fails if there are fewer than `2 * queues`. |
+| `create_resources()` | Creates the flow tables, the rings and the export files, undoing what it did if a step fails. |
+| `create_flow_tables()` / `free_flow_tables()` | One table per lane, in the memory of its RX core. |
+| `create_rings()` / `create_ring()` / `free_rings()` / `free_ring()` | Two single-producer single-consumer rings per lane. `free_ring()` also frees the packets still waiting in it. |
+| `launch_threads()` | Fills the `queue_args` of each lane and starts its TX thread, then its RX thread, so the consumer exists before the producer. |
+| `rx_main()` | The RX thread: both interfaces in a loop, the periodic export, the cleaner, and the load and flow counters. |
+| `tx_main()` | The TX thread: both rings in a loop, until stopped and the rings are empty. |
+| `receive_burst()` | Reads one burst from one interface and runs it through filter, MAC rewrite, tracking and enqueue. |
+| `make_items()` | Turns the tracked frames into ring items and frees the frames that must be dropped. |
+| `queue_items()` | Puts items in a ring and frees and counts the ones that do not fit. |
+| `rewrite_dst_mac()` | Writes the configured destination MAC into the IP frames of a burst. ARP is left alone. |
+| `send_burst()` | Dequeues items, sends them, counts the sent frames in their flows, frees and counts the ones the NIC refused. |
+| `rings_empty()` | True when both rings of a lane are empty. |
+| `export_pass_start()` / `export_pass_step()` | Run one export of a table in chunks, one chunk per loop pass, all rows with the same timestamp. |
+| `final_export()` | Runs a whole export of every table at shutdown. |
+| `count_cycles()` | Adds the time since the last call to a thread's busy and total cycle counters. |
+| `add_stat()` | Adds to a single-writer counter with a plain load and store. |
+| `rewrite_target()` / `format_rewrite()` / `log_rewrite()` | Turn the configured MACs into pointers (NULL when unset) and log what was chosen. |
+| `forward_rx_packets()` / `forward_tx_packets()` / `forward_drops()` / `forward_flows()` | Statistics for the main loop, summed over the lanes. |
+| `port_drops()` | Drops counted by the NIC itself. |
+| `forward_load()` / `load_percent()` | Load of each thread since the previous call, as text. |
+
+\subsection unit_flow_export flow_export.c: from the tables to the CSV files
+
+Each RX thread owns a **slot** with room for `FLOW_EXPORT_MAX` records. It fills the slot and marks it ready. One
+writer thread polls the slots every 50 ms, writes the ready ones with `writer_write()` and marks them free.
+
+| Function | Purpose |
+|---|---|
+| `flow_export_start()` | Opens `flow_stats_core_<core_id>.csv` for each lane, one file per RX core, and starts the writer thread. |
+| `flow_export_begin()` | Gives an RX thread its slot's buffer to fill, or NULL if the writer has not taken the previous chunk yet. |
+| `flow_export_commit()` | Marks the slot ready, with the timestamp and the number of records. |
+| `flow_export_stop()` | Lets the writer thread do one last scan, then joins it and closes the files. |
+| `writer_main()` | The writer thread loop. |
+| `close_exporters()` | Closes the files opened so far. |
+
+\subsection unit_writer writer.c: the CSV file
+
+| Function | Purpose |
+|---|---|
+| `writer_open()` | Opens a file for appending and writes the header line only if the file is empty. |
+| `writer_write()` | Appends one row per flow record: timestamp, addresses, ports, protocol, rx and tx bytes and packets. Flushes after each call. Fails with `EINVAL` for an invalid address family. |
+| `writer_close()` | Closes the file. Safe to call twice. |
+
+\section arch_types Shared types and constants
+
+| Name | Meaning |
+|---|---|
+| `app_config` | All settings, filled by `config_load()`. |
+| `MAX_QUEUES` | 16, the highest queue count. |
+| `BURST_SIZE` | 32 packets per read or write. |
+| `RING_SIZE` | 1024 items per ring. |
+| `pkt_info` | Parsed headers of one packet (family, protocol, addresses, ports). |
+| `ip_addr` | An IPv4 or IPv6 address. |
+| `burst_meta` | Per-burst data filled by `flow_table_filter_burst()` and `flow_table_track()`: headers, lengths, slots and generations. |
+| `tx_item` | What the RX thread hands to the TX thread: mbuf, slot, generation and length. |
+| `queue_args` | Everything the two threads of a lane need. |
+| `flow_record` | One flow's 5-tuple and counters, as passed to the CSV writer. |
+
+\section arch_files Files the program writes
+
+| File | Content |
+|---|---|
+| `flow_stats_core_<core_id>.csv` | One row per flow per export, appended: `timestamp,src_ip,dst_ip,src_port,dst_port,protocol,rx_bytes,tx_bytes,rx_packets,tx_packets`. One file per RX core. Counters are cumulative since the flow was created. |
+| `log.txt` | The log, appended (the name and level come from `flowfwd.conf`). |
+*/

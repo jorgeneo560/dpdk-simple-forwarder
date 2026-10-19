@@ -33,12 +33,11 @@ struct flow_key {
 
 // Written only by the RX thread of the queue.
 struct flow_entry {
-  uint64_t
-      last_seen; // time of the latest packet of the flow, 0 = slot not in use
+  uint64_t last_seen;
   uint64_t rx_bytes;
   uint64_t rx_packets;
-  uint64_t tx_bytes_base; // tx counters of the slot when the flow was created
-  uint64_t tx_packets_base;
+  uint64_t tx_bytes_at_start; // the slot's tx totals when the flow started
+  uint64_t tx_packets_at_start;
 };
 
 // Written only by the TX thread of the queue, in its own array so that the two
@@ -57,9 +56,9 @@ struct flow_table {
   struct flow_tx_entry *tx_entries; // same index as entries
   unsigned int id;
   uint64_t timeout_cycles;
-  uint64_t cleanup_cycles;
+  unsigned int cleanup_interval; // seconds between cleaner scans
   uint64_t next_cleanup;
-  uint32_t export_next; // where the running export stopped
+  uint32_t export_interval; // where the running export stopped
 };
 
 static void make_flow_key(struct flow_key *key, const struct pkt_info *info) {
@@ -70,6 +69,10 @@ static void make_flow_key(struct flow_key *key, const struct pkt_info *info) {
   key->dst_port = info->dst_port;
   key->family = info->family;
   key->proto = info->proto;
+}
+
+static uint64_t next_cleanup(const struct flow_table *table, uint64_t now) {
+  return now + rte_get_tsc_hz() * table->cleanup_interval;
 }
 
 struct flow_table *flow_table_create(unsigned int id, int socket,
@@ -92,8 +95,8 @@ struct flow_table *flow_table_create(unsigned int id, int socket,
   table->id = id;
   table->pass_arp = cfg->pass_arp != 0;
   table->timeout_cycles = rte_get_tsc_hz() * cfg->flow_timeout;
-  table->cleanup_cycles = rte_get_tsc_hz() * cfg->cleanup_interval;
-  table->next_cleanup = rte_rdtsc() + table->cleanup_cycles;
+  table->cleanup_interval = cfg->cleanup_interval;
+  table->next_cleanup = next_cleanup(table, rte_rdtsc());
   snprintf(name, sizeof(name), "flows_%u", id);
   table->hash = rte_hash_create(&params);
   if (table->hash == NULL) {
@@ -133,19 +136,20 @@ void flow_table_free(struct flow_table *table) {
 
 // Adds a received packet to its flow and returns the flow slot, or FLOW_DROP if
 // the table has no room for the flow. *gen is the generation of the slot.
-static int32_t track_flow(struct flow_table *table, const struct pkt_info *info,
-                          uint16_t len, uint64_t now, uint32_t *gen) {
+static int32_t find_or_add_flow(struct flow_table *table,
+                                const struct pkt_info *info, uint16_t len,
+                                uint64_t now, uint32_t *gen) {
   struct flow_key key;
-  struct flow_entry *entry;
-  struct flow_tx_entry *tx;
   int slot;
 
-  *gen = 0;
   make_flow_key(&key, info);
   slot = rte_hash_add_key(table->hash, &key);
   if (slot < 0) {
+    *gen = 0;
     return FLOW_DROP;
   }
+  struct flow_entry *entry;
+  struct flow_tx_entry *tx;
   entry = &table->entries[slot];
   tx = &table->tx_entries[slot];
   // last_seen is 0 only for a slot that is not in use. A new flow gets a new
@@ -156,9 +160,9 @@ static int32_t track_flow(struct flow_table *table, const struct pkt_info *info,
         &tx->gen, atomic_load_explicit(&tx->gen, memory_order_relaxed) + 1,
         memory_order_release);
     memset(entry, 0, sizeof(*entry));
-    entry->tx_bytes_base =
+    entry->tx_bytes_at_start =
         atomic_load_explicit(&tx->bytes, memory_order_relaxed);
-    entry->tx_packets_base =
+    entry->tx_packets_at_start =
         atomic_load_explicit(&tx->packets, memory_order_relaxed);
   }
   entry->last_seen = now;
@@ -250,8 +254,8 @@ void flow_table_track(struct flow_table *table, struct burst_meta *meta) {
 
   for (uint16_t i = 0; i < meta->count; i++) {
     if (is_trackable(&meta->info[i])) {
-      meta->slot[i] =
-          track_flow(table, &meta->info[i], meta->len[i], now, &meta->gen[i]);
+      meta->slot[i] = find_or_add_flow(table, &meta->info[i], meta->len[i], now,
+                                       &meta->gen[i]);
     } else {
       meta->slot[i] = FLOW_NO_SLOT;
       meta->gen[i] = 0;
@@ -264,7 +268,7 @@ void flow_table_cleanup(struct flow_table *table, uint64_t now) {
     return;
   }
   expire_flows(table, now, table->timeout_cycles);
-  table->next_cleanup = now + table->cleanup_cycles;
+  table->next_cleanup = next_cleanup(table, now);
 }
 
 unsigned int flow_table_count(const struct flow_table *table) {
@@ -272,7 +276,7 @@ unsigned int flow_table_count(const struct flow_table *table) {
 }
 
 void flow_table_export_begin(struct flow_table *table) {
-  table->export_next = 0;
+  table->export_interval = 0;
 }
 
 size_t flow_table_export_next(struct flow_table *table,
@@ -283,7 +287,7 @@ size_t flow_table_export_next(struct flow_table *table,
   int slot;
 
   while (n < max && (slot = rte_hash_iterate(table->hash, &key, &data,
-                                             &table->export_next)) >= 0) {
+                                             &table->export_interval)) >= 0) {
     const struct flow_key *k = key;
     const struct flow_entry *e = &table->entries[slot];
     struct flow_tx_entry *tx = &table->tx_entries[slot];
@@ -297,10 +301,10 @@ size_t flow_table_export_next(struct flow_table *table,
     r->dst_ip = k->dst_ip;
     r->rx_bytes = e->rx_bytes;
     r->tx_bytes = atomic_load_explicit(&tx->bytes, memory_order_relaxed) -
-                  e->tx_bytes_base;
+                  e->tx_bytes_at_start;
     r->rx_packets = e->rx_packets;
     r->tx_packets = atomic_load_explicit(&tx->packets, memory_order_relaxed) -
-                    e->tx_packets_base;
+                    e->tx_packets_at_start;
   }
   return n;
 }
