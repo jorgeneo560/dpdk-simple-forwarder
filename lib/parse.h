@@ -18,7 +18,7 @@ enum parse_result {
  */
 struct pkt_info {
   uint16_t ether_type;  ///< after any VLAN tags (also set for ARP and other)
-  uint8_t family;       ///< 4 or 6
+  uint8_t family;       ///< 4 = IPv4, 6 = IPv6, 0 = not an IP packet
   uint8_t proto;        ///< IP protocol (IPv6: the next-header field)
   uint16_t src_port;    ///< host byte order; 0 when the protocol has no ports
   uint16_t dst_port;    ///< host byte order

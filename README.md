@@ -35,7 +35,7 @@ The program is built from independent lanes. Lane `q` owns queue `q` of both NIC
         |  count the packet as received in flow table q                   |
         +-----------------------------------------------------------------+
                     |                                         |
-             forward ring q                            reverse ring q
+            in_to_out_ring q                          out_to_in_ring q
                     |                                         |
                     v                                         v
         +-----------------------------------------------------------------+
@@ -52,7 +52,7 @@ The program is built from independent lanes. Lane `q` owns queue `q` of both NIC
   connection get the same hash and reach the same queue. So a connection is always handled
   by one RX thread and one TX thread, and its flow entries are in one table.
 - **RX thread `q`** polls queue `q` of both NICs, filters and counts the packets, and puts them
-  in a ring: the forward ring for packets that came from the input NIC, the reverse ring for the
+  in a ring: the in-to-out ring for packets that came from the input NIC, the out-to-in ring for the
   others.
 - **TX thread `q`** takes the packets from both rings, sends them out through the other NIC and
   counts them as sent.

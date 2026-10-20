@@ -38,8 +38,6 @@ static pthread_cond_t wake = PTHREAD_COND_INITIALIZER;
 static pthread_t thread;
 static bool started;
 static bool echo_console;
-static bool line_open; // logger thread only: the last chunk written did not end
-                       // its line
 static FILE *log_file;
 static FILE *stream;
 
@@ -66,6 +64,9 @@ static ssize_t stream_write(void *cookie, const char *buf, size_t size) {
   m->lcore = rte_lcore_id();
   m->len = size < TEXT_LEN ? size : TEXT_LEN - 1;
   memcpy(m->text, buf, m->len);
+  if (size >= TEXT_LEN) {
+    m->text[m->len - 1] = '\n'; // a line cut to fit the slot still ends
+  }
   q_tail = (q_tail + 1) % QUEUE_LEN;
   q_count++;
   pthread_cond_signal(&wake);
@@ -73,29 +74,24 @@ static ssize_t stream_write(void *cookie, const char *buf, size_t size) {
   return (ssize_t)size;
 }
 
-static void write_msg(const struct log_msg *m) {
-  bool ends_line = m->len > 0 && m->text[m->len - 1] == '\n';
+static void write_msg(const struct log_msg *msg) {
+  char timestamp[32], source[24];
+  struct tm local_time;
 
-  // A line written in several pieces (DPDK does this) gets one timestamp.
-  if (!line_open) {
-    char stamp[32], who[24];
-    struct tm tm;
-
-    localtime_r(&m->ts.tv_sec, &tm);
-    strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tm);
-    if (m->lcore == LCORE_ID_ANY) {
-      snprintf(who, sizeof(who), "other");
-    } else {
-      snprintf(who, sizeof(who), "lcore %u", m->lcore);
-    }
-    fprintf(log_file, "%s.%03ld [%s] ", stamp, m->ts.tv_nsec / 1000000, who);
+  localtime_r(&msg->ts.tv_sec, &local_time);
+  strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &local_time);
+  if (msg->lcore == LCORE_ID_ANY) {
+    snprintf(source, sizeof(source), "other");
+  } else {
+    snprintf(source, sizeof(source), "lcore %u", msg->lcore);
   }
-  fwrite(m->text, 1, m->len, log_file);
+  fprintf(log_file, "%s.%03ld [%s] ", timestamp, msg->ts.tv_nsec / 1000000,
+          source);
+  fwrite(msg->text, 1, msg->len, log_file);
   fflush(log_file);
-  line_open = !ends_line;
 
   if (echo_console) {
-    fwrite(m->text, 1, m->len, stderr);
+    fwrite(msg->text, 1, msg->len, stderr);
   }
 }
 
@@ -193,9 +189,6 @@ void logger_stop(void) {
   pthread_mutex_unlock(&lock);
   pthread_join(thread, NULL);
 
-  if (line_open) {
-    fputc('\n', log_file);
-  }
   if (dropped > 0) {
     fprintf(log_file, "%lu log message(s) dropped (queue full)\n", dropped);
   }

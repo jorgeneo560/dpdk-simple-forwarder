@@ -39,13 +39,13 @@ struct queue_args {
   const struct rte_ether_addr
       *forward_mac; // NULL = leave the destination MAC alone
   const struct rte_ether_addr *reverse_mac;
-  struct rte_ring *forward_ring; // packets going from input to output
-  struct rte_ring *reverse_ring; // packets going from output to input
+  struct rte_ring *in_to_out_ring; // packets going from input to output
+  struct rte_ring *out_to_in_ring; // packets going from output to input
 };
 
 static struct queue_args queue_args[MAX_QUEUES];
-static struct rte_ring *forward_rings[MAX_QUEUES];
-static struct rte_ring *reverse_rings[MAX_QUEUES];
+static struct rte_ring *in_to_out_rings[MAX_QUEUES];
+static struct rte_ring *out_to_in_rings[MAX_QUEUES];
 static atomic_bool rx_quit; // the RX threads stop first
 static atomic_bool tx_quit; // the TX threads stop when their rings are empty
 static unsigned int rx_lcore_ids[MAX_QUEUES], tx_lcore_ids[MAX_QUEUES];
@@ -256,11 +256,11 @@ static int rx_main(void *arg) {
   last = rte_rdtsc();
   next_export = last + export_cycles;
   while (!atomic_load_explicit(&rx_quit, memory_order_relaxed)) {
-    unsigned int handled = receive_burst(args, args->in_port,
-                                         args->forward_ring, args->forward_mac);
+    unsigned int handled = receive_burst(
+        args, args->in_port, args->in_to_out_ring, args->forward_mac);
     uint64_t now;
 
-    handled += receive_burst(args, args->out_port, args->reverse_ring,
+    handled += receive_burst(args, args->out_port, args->out_to_in_ring,
                              args->reverse_mac);
 
     now = count_cycles(&last, handled > 0, &stats->busy_cycles,
@@ -284,8 +284,8 @@ static int rx_main(void *arg) {
 // (the RX threads have already stopped, so nothing is added), so every accepted
 // packet is sent or counted as dropped.
 static bool rings_empty(const struct queue_args *args) {
-  return rte_ring_empty(args->forward_ring) &&
-         rte_ring_empty(args->reverse_ring);
+  return rte_ring_empty(args->in_to_out_ring) &&
+         rte_ring_empty(args->out_to_in_ring);
 }
 
 static int tx_main(void *arg) {
@@ -298,9 +298,10 @@ static int tx_main(void *arg) {
   last = rte_rdtsc();
   while (!atomic_load_explicit(&tx_quit, memory_order_relaxed) ||
          !rings_empty(args)) {
-    unsigned int handled = send_burst(args, args->forward_ring, args->out_port);
+    unsigned int handled =
+        send_burst(args, args->in_to_out_ring, args->out_port);
 
-    handled += send_burst(args, args->reverse_ring, args->in_port);
+    handled += send_burst(args, args->out_to_in_ring, args->in_port);
     count_cycles(&last, handled > 0, &stats->busy_cycles, &stats->total_cycles);
   }
   RTE_LOG(DEBUG, FLOWFWD, "TX thread stopped: queue %u\n", args->queue);
@@ -343,10 +344,10 @@ static void free_ring(struct rte_ring *ring) {
 
 static void free_rings(void) {
   for (unsigned int i = 0; i < MAX_QUEUES; i++) {
-    free_ring(forward_rings[i]);
-    free_ring(reverse_rings[i]);
-    forward_rings[i] = NULL;
-    reverse_rings[i] = NULL;
+    free_ring(in_to_out_rings[i]);
+    free_ring(out_to_in_rings[i]);
+    in_to_out_rings[i] = NULL;
+    out_to_in_rings[i] = NULL;
   }
 }
 
@@ -371,9 +372,9 @@ static bool create_rings(const unsigned int *rx_lcores, unsigned int nb) {
   for (unsigned int i = 0; i < nb; i++) {
     int socket = (int)rte_lcore_to_socket_id(rx_lcores[i]);
 
-    forward_rings[i] = create_ring("forward", i, socket);
-    reverse_rings[i] = create_ring("reverse", i, socket);
-    if (forward_rings[i] == NULL || reverse_rings[i] == NULL) {
+    in_to_out_rings[i] = create_ring("in_to_out", i, socket);
+    out_to_in_rings[i] = create_ring("out_to_in", i, socket);
+    if (in_to_out_rings[i] == NULL || out_to_in_rings[i] == NULL) {
       free_rings();
       return false;
     }
@@ -475,8 +476,8 @@ static bool launch_threads(const struct app_config *cfg,
                             .table = flow_tables[queue],
                             .forward_mac = forward_mac,
                             .reverse_mac = reverse_mac,
-                            .forward_ring = forward_rings[queue],
-                            .reverse_ring = reverse_rings[queue]};
+                            .in_to_out_ring = in_to_out_rings[queue],
+                            .out_to_in_ring = out_to_in_rings[queue]};
     // The consumer is started first, so the ring never fills before it runs.
     if (rte_eal_remote_launch(tx_main, &queue_args[queue],
                               tx_lcore_ids[queue]) != 0 ||

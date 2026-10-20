@@ -1,0 +1,16 @@
+/**
+\mainpage flowfwd
+
+`flowfwd` is a DPDK packet forwarder: it receives packets on one interface, forwards them to another, and keeps
+per-flow (5-tuple) statistics that it exports to one CSV file per core.
+
+Start here:
+
+- \subpage md_README "README" (how to build, run, configure and verify the program, with the export format and the
+  design decisions and limitations)
+- \subpage architecture "How flowfwd works, unit by unit" (the life of a packet in both directions, and the
+  purpose of every function)
+
+The reference of every file, structure and function follows from the "Files" and "Data Structures" entries in the
+menu.
+*/

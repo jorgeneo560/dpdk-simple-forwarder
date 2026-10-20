@@ -1,0 +1,104 @@
+sequenceDiagram
+    autonumber
+    participant A as Host A (input side)
+    participant N0 as NIC port 0 (input)
+    participant RX as RX thread (rx_main, receive_burst)
+    participant T as flow table (parse_packet, flow_table_*)
+    box rgb(232, 244, 255) forward only
+        participant QIO as in_to_out_ring (input to output)
+    end
+    box rgb(255, 244, 228) reverse only
+        participant QOI as out_to_in_ring (output to input)
+    end
+    participant TX as TX thread (tx_main, send_burst)
+    participant N1 as NIC port 1 (output)
+    participant B as Host B (output side)
+    box rgb(238, 255, 238) beside the data path
+        participant X as export writer thread (flow_export, writer)
+        participant M as main thread (main, logger)
+    end
+
+    Note over A,M: Startup, once: config_load, hugepages_check, nics_check, rte_eal_init, logger_start,<br/>ports_start (rss_fill_key symmetric key, mbuf pool, queues), forward_start (tables, rings, threads)
+
+    rect rgb(232, 244, 255)
+    Note over A,B: FORWARD: a packet from input to output
+    A->>N0: Ethernet frame
+    N0->>N0: RSS hash of the 5-tuple picks queue q (symmetric key)
+    N0->>RX: rte_eth_rx_burst(port 0, queue q), up to 32 mbufs
+    RX->>RX: add_stat(rx_packets)
+    RX->>T: flow_table_filter_burst()
+    T->>T: parse_packet(): Ethernet, VLAN, IPv4 or IPv6, TCP or UDP ports
+    alt malformed or not IP (ARP only if pass_arp is 1)
+        T-->>RX: packet freed, counted in rx but not in drops
+    else kept
+        T-->>RX: burst_meta (headers and length)
+    end
+    opt forward_dst_mac is set
+        RX->>RX: rewrite_dst_mac() on IP packets
+    end
+    RX->>T: flow_table_track()
+    T->>T: is_trackable(): TCP or UDP with ports
+    alt trackable
+        T->>T: find_or_add_flow(): new flow gets gen+1 and tx_*_at_start,<br/>existing flow only updates rx counters and last_seen
+        T-->>RX: slot and gen (FLOW_DROP if the table is full)
+    else ICMP, ARP, fragment
+        T-->>RX: FLOW_NO_SLOT (forwarded, not in a flow)
+    end
+    RX->>RX: make_items(): free FLOW_DROP packets, count table_drops
+    RX->>QIO: queue_items(): in_to_out_ring (ring_drops if full)
+    QIO->>TX: rte_ring_dequeue_burst_elem()
+    TX->>N1: rte_eth_tx_burst(port 1, queue q)
+    TX->>TX: add_stat(tx_packets), tx_drops for refused packets
+    TX->>T: flow_table_count_sent(slot, gen, len) for each sent packet
+    Note right of T: counted only if gen still matches the slot
+    N1->>B: Ethernet frame
+    end
+
+    rect rgb(255, 244, 228)
+    Note over A,B: REVERSE: a packet from output to input (same lane, same flow table)
+    B->>N1: Ethernet frame
+    N1->>N1: RSS hash, same queue q because the key is symmetric
+    N1->>RX: rte_eth_rx_burst(port 1, queue q), up to 32 mbufs
+    RX->>RX: add_stat(rx_packets)
+    RX->>T: flow_table_filter_burst()
+    T->>T: parse_packet(): Ethernet, VLAN, IPv4 or IPv6, TCP or UDP ports
+    alt malformed or not IP (ARP only if pass_arp is 1)
+        T-->>RX: packet freed, counted in rx but not in drops
+    else kept
+        T-->>RX: burst_meta (headers and length)
+    end
+    opt reverse_dst_mac is set
+        RX->>RX: rewrite_dst_mac() on IP packets
+    end
+    RX->>T: flow_table_track()
+    T->>T: is_trackable(): TCP or UDP with ports
+    alt trackable
+        T->>T: find_or_add_flow(): the swapped 5-tuple is its own flow entry in the same table,<br/>new flow gets gen+1 and tx_*_at_start, existing flow updates rx counters and last_seen
+        T-->>RX: slot and gen (FLOW_DROP if the table is full)
+    else ICMP, ARP, fragment
+        T-->>RX: FLOW_NO_SLOT (forwarded, not in a flow)
+    end
+    RX->>RX: make_items(): free FLOW_DROP packets, count table_drops
+    RX->>QOI: queue_items(): out_to_in_ring (ring_drops if full)
+    QOI->>TX: rte_ring_dequeue_burst_elem()
+    TX->>N0: rte_eth_tx_burst(port 0, queue q)
+    TX->>TX: add_stat(tx_packets), tx_drops for refused packets
+    TX->>T: flow_table_count_sent(slot, gen, len) for each sent packet
+    Note right of T: counted only if gen still matches the slot
+    N0->>A: Ethernet frame
+    end
+
+    rect rgb(238, 255, 238)
+    Note over RX,M: Beside the data path
+    RX->>T: flow_table_cleanup(now): expire_flows() removes idle flows
+    RX->>T: export_pass_start(), flow_table_export_begin() every export interval
+    loop one chunk per loop pass
+        RX->>T: flow_table_export_next()
+        RX->>X: flow_export_commit() (slot marked ready)
+    end
+    X->>X: writer_main polls every 50 ms, writer_write() appends rows to flow_stats_core_N.csv
+    M->>RX: every second: forward_rx_packets, forward_tx_packets, forward_drops, forward_flows, forward_load
+    M->>M: RTE_LOG to stream_write to logger_main to log.txt
+    end
+
+    Note over A,M: Shutdown: forward_stop (RX stop, TX drain rings, final_export, flow_export_stop), ports_stop (frees mbuf pool), logger_stop

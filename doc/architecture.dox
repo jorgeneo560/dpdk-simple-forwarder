@@ -28,8 +28,8 @@ digraph lanes {
   nic1 [label="NIC output\n(port 1)\nqueue q"];
   rx   [label="RX thread q\nrx_main()\nreceive_burst()"];
   tbl  [label="flow table q\nflow_table_*()", shape=ellipse];
-  fr   [label="forward ring q", shape=cylinder];
-  rr   [label="reverse ring q", shape=cylinder];
+  fr   [label="in_to_out_ring q", shape=cylinder];
+  rr   [label="out_to_in_ring q", shape=cylinder];
   tx   [label="TX thread q\ntx_main()\nsend_burst()"];
   nic0 -> rx [label="rx_burst"]; nic1 -> rx [label="rx_burst"];
   rx -> tbl [label="count rx"]; rx -> fr; rx -> rr;
@@ -48,6 +48,9 @@ Three more threads exist besides the lanes:
 
 \section arch_packet Life of a packet
 
+\image html packet_life_sequence.svg "A packet from input to output and back (source: doc/packet_life_sequence.mmd)" width=100%
+
+
 1. The NIC writes the frame in an mbuf of the pool made by `create_mbuf_pool()` and puts it in the RX queue
    chosen by the RSS hash.
 2. `rx_main()` loops forever. Each pass it calls `receive_burst()` once for the input interface and once for
@@ -61,7 +64,7 @@ Three more threads exist besides the lanes:
    slot `FLOW_NO_SLOT` and are only forwarded. A frame whose flow does not fit in a full table gets
    `FLOW_DROP`.
 6. `make_items()` builds one `tx_item` per frame (mbuf, slot, generation, length) and frees the `FLOW_DROP`
-   frames. `queue_items()` puts the items in the forward ring (input to output) or the reverse ring (output to
+   frames. `queue_items()` puts the items in the in-to-out ring (input to output) or the out-to-in ring (output to
    input) with `rte_ring_enqueue_burst_elem()`. Items that do not fit are freed and counted as ring drops.
 7. `tx_main()` calls `send_burst()` for each ring. It takes up to 32 items with
    `rte_ring_dequeue_burst_elem()`, sends them with `rte_eth_tx_burst()`, and for each frame that the NIC
