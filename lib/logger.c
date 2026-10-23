@@ -44,7 +44,7 @@ static FILE *stream;
 // Called by stdio from whichever thread logs: only copies the text into the
 // queue.
 static ssize_t stream_write(void *cookie, const char *buf, size_t size) {
-  struct log_msg *m;
+  struct log_msg *msg;
 
   (void)cookie;
   pthread_mutex_lock(&lock);
@@ -59,13 +59,13 @@ static ssize_t stream_write(void *cookie, const char *buf, size_t size) {
     return (ssize_t)size;
   }
 
-  m = &queue[q_tail];
-  clock_gettime(CLOCK_REALTIME, &m->ts);
-  m->lcore = rte_lcore_id();
-  m->len = size < TEXT_LEN ? size : TEXT_LEN - 1;
-  memcpy(m->text, buf, m->len);
+  msg = &queue[q_tail];
+  clock_gettime(CLOCK_REALTIME, &msg->ts);
+  msg->lcore = rte_lcore_id();
+  msg->len = size < TEXT_LEN ? size : TEXT_LEN - 1;
+  memcpy(msg->text, buf, msg->len);
   if (size >= TEXT_LEN) {
-    m->text[m->len - 1] = '\n'; // a line cut to fit the slot still ends
+    msg->text[msg->len - 1] = '\n'; // a line cut to fit the slot still ends
   }
   q_tail = (q_tail + 1) % QUEUE_LEN;
   q_count++;
@@ -96,7 +96,7 @@ static void write_msg(const struct log_msg *msg) {
 }
 
 static void *logger_main(void *arg) {
-  struct log_msg m;
+  struct log_msg msg;
 
   (void)arg;
   for (;;) {
@@ -109,12 +109,12 @@ static void *logger_main(void *arg) {
       pthread_mutex_unlock(&lock);
       return NULL;
     }
-    m = queue[q_head];
+    msg = queue[q_head];
     q_head = (q_head + 1) % QUEUE_LEN;
     q_count--;
     pthread_mutex_unlock(&lock);
 
-    write_msg(&m);
+    write_msg(&msg);
   }
 }
 

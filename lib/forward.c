@@ -1,5 +1,6 @@
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -30,25 +31,8 @@ struct tx_item {
   uint16_t len; // bytes of the packet on the wire
 };
 
-// Everything the RX and the TX thread of a queue need.
-struct queue_args {
-  uint16_t queue;
-  uint16_t in_port;
-  uint16_t out_port;
-  struct flow_table *table;
-  const struct rte_ether_addr
-      *forward_mac; // NULL = leave the destination MAC alone
-  const struct rte_ether_addr *reverse_mac;
-  struct rte_ring *in_to_out_ring; // packets going from input to output
-  struct rte_ring *out_to_in_ring; // packets going from output to input
-};
-
-static struct queue_args queue_args[MAX_QUEUES];
-static struct rte_ring *in_to_out_rings[MAX_QUEUES];
-static struct rte_ring *out_to_in_rings[MAX_QUEUES];
 static atomic_bool rx_quit; // the RX threads stop first
 static atomic_bool tx_quit; // the TX threads stop when their rings are empty
-static unsigned int rx_lcore_ids[MAX_QUEUES], tx_lcore_ids[MAX_QUEUES];
 
 // One per RX thread, written only by it and read by the main thread. Each one
 // fills its own cache lines, so threads never share a line.
@@ -71,9 +55,25 @@ struct tx_stats {
   atomic_uint_fast64_t total_cycles;
 } __rte_cache_aligned;
 
-static struct rx_stats rx_stats[MAX_QUEUES];
-static struct tx_stats tx_stats[MAX_QUEUES];
-static struct flow_table *flow_tables[MAX_QUEUES];
+// Everything that belongs to one queue: the RX and the TX thread that serve it,
+// the table and the two rings they share, and the statistics of both threads.
+struct queue_args {
+  uint8_t queue;
+  uint8_t in_port;
+  uint8_t out_port;
+  unsigned int rx_lcore;
+  unsigned int tx_lcore;
+  struct flow_table *table;
+  const struct rte_ether_addr
+      *forward_mac; // NULL = leave the destination MAC alone
+  const struct rte_ether_addr *reverse_mac;
+  struct rte_ring *in_to_out_ring; // packets going from input to output
+  struct rte_ring *out_to_in_ring; // packets going from output to input
+  struct rx_stats rx_stats;
+  struct tx_stats tx_stats;
+};
+
+static struct queue_args queue_args[MAX_QUEUES];
 static unsigned int nb_queues;
 static uint64_t export_cycles;
 
@@ -134,10 +134,10 @@ static void queue_items(struct rx_stats *stats, struct rte_ring *ring,
 
 // RX thread: reads a burst from one interface, filters and counts it, and
 // queues the packets for the TX thread. Returns how many packets were read.
-static uint16_t receive_burst(const struct queue_args *args, uint16_t from,
+static uint16_t receive_burst(struct queue_args *args, uint16_t from,
                               struct rte_ring *ring,
                               const struct rte_ether_addr *dst_mac) {
-  struct rx_stats *stats = &rx_stats[args->queue];
+  struct rx_stats *stats = &args->rx_stats;
   struct rte_mbuf *bufs[BURST_SIZE];
   struct burst_meta meta;
   struct tx_item items[BURST_SIZE];
@@ -167,9 +167,9 @@ static uint16_t receive_burst(const struct queue_args *args, uint16_t from,
 
 // TX thread: takes a burst from a ring, sends it and counts the sent packets in
 // their flows. Returns how many packets were taken.
-static uint16_t send_burst(const struct queue_args *args, struct rte_ring *ring,
+static uint16_t send_burst(struct queue_args *args, struct rte_ring *ring,
                            uint16_t to) {
-  struct tx_stats *stats = &tx_stats[args->queue];
+  struct tx_stats *stats = &args->tx_stats;
   struct tx_item items[BURST_SIZE];
   struct rte_mbuf *bufs[BURST_SIZE];
   unsigned int n = rte_ring_dequeue_burst_elem(ring, items, sizeof(items[0]),
@@ -246,8 +246,8 @@ static uint64_t count_cycles(uint64_t *last, bool handled,
 }
 
 static int rx_main(void *arg) {
-  const struct queue_args *args = arg;
-  struct rx_stats *stats = &rx_stats[args->queue];
+  struct queue_args *args = arg;
+  struct rx_stats *stats = &args->rx_stats;
   uint64_t last, next_export;
   struct export_pass export_pass = {.active = false};
 
@@ -289,8 +289,8 @@ static bool rings_empty(const struct queue_args *args) {
 }
 
 static int tx_main(void *arg) {
-  const struct queue_args *args = arg;
-  struct tx_stats *stats = &tx_stats[args->queue];
+  struct queue_args *args = arg;
+  struct tx_stats *stats = &args->tx_stats;
   uint64_t last;
 
   RTE_LOG(DEBUG, FLOWFWD, "TX thread started: queue %u, ports %u <-> %u\n",
@@ -310,18 +310,17 @@ static int tx_main(void *arg) {
 
 static void free_flow_tables(void) {
   for (unsigned int i = 0; i < MAX_QUEUES; i++) {
-    flow_table_free(flow_tables[i]);
-    flow_tables[i] = NULL;
+    flow_table_free(queue_args[i].table);
+    queue_args[i].table = NULL;
   }
 }
 
 // One table per queue, in the memory of the socket its RX lcore runs on.
-static bool create_flow_tables(const struct app_config *cfg,
-                               const unsigned int *rx_lcores, unsigned int nb) {
-  for (unsigned int i = 0; i < nb; i++) {
-    flow_tables[i] =
-        flow_table_create(i, (int)rte_lcore_to_socket_id(rx_lcores[i]), cfg);
-    if (flow_tables[i] == NULL) {
+static bool create_flow_tables(const struct app_config *cfg) {
+  for (unsigned int i = 0; i < cfg->nb_queues; i++) {
+    queue_args[i].table = flow_table_create(
+        i, (int)rte_lcore_to_socket_id(queue_args[i].rx_lcore), cfg);
+    if (queue_args[i].table == NULL) {
       free_flow_tables();
       return false;
     }
@@ -344,10 +343,10 @@ static void free_ring(struct rte_ring *ring) {
 
 static void free_rings(void) {
   for (unsigned int i = 0; i < MAX_QUEUES; i++) {
-    free_ring(in_to_out_rings[i]);
-    free_ring(out_to_in_rings[i]);
-    in_to_out_rings[i] = NULL;
-    out_to_in_rings[i] = NULL;
+    free_ring(queue_args[i].in_to_out_ring);
+    free_ring(queue_args[i].out_to_in_ring);
+    queue_args[i].in_to_out_ring = NULL;
+    queue_args[i].out_to_in_ring = NULL;
   }
 }
 
@@ -368,13 +367,14 @@ static struct rte_ring *create_ring(const char *prefix, unsigned int queue,
   return ring;
 }
 
-static bool create_rings(const unsigned int *rx_lcores, unsigned int nb) {
+static bool create_rings(unsigned int nb) {
   for (unsigned int i = 0; i < nb; i++) {
-    int socket = (int)rte_lcore_to_socket_id(rx_lcores[i]);
+    int socket = (int)rte_lcore_to_socket_id(queue_args[i].rx_lcore);
 
-    in_to_out_rings[i] = create_ring("in_to_out", i, socket);
-    out_to_in_rings[i] = create_ring("out_to_in", i, socket);
-    if (in_to_out_rings[i] == NULL || out_to_in_rings[i] == NULL) {
+    queue_args[i].in_to_out_ring = create_ring("in_to_out", i, socket);
+    queue_args[i].out_to_in_ring = create_ring("out_to_in", i, socket);
+    if (queue_args[i].in_to_out_ring == NULL ||
+        queue_args[i].out_to_in_ring == NULL) {
       free_rings();
       return false;
     }
@@ -421,8 +421,7 @@ static void log_rewrite(const struct rte_ether_addr *forward_mac,
 
 // The worker lcores are taken in pairs: the first of a pair is the RX thread of
 // a queue and the second one its TX thread.
-static bool pick_lcores(unsigned int nb, unsigned int *rx_lcores,
-                        unsigned int *tx_lcores) {
+static bool pick_lcores(unsigned int nb) {
   const unsigned int needed = 2 * nb;
   unsigned int lcore, found = 0;
 
@@ -438,23 +437,27 @@ static bool pick_lcores(unsigned int nb, unsigned int *rx_lcores,
       break;
     }
     if (found % 2 == 0) {
-      rx_lcores[found / 2] = lcore;
+      queue_args[found / 2].rx_lcore = lcore;
     } else {
-      tx_lcores[found / 2] = lcore;
+      queue_args[found / 2].tx_lcore = lcore;
     }
     found++;
   }
   return true;
 }
 
-static bool create_resources(const struct app_config *cfg,
-                             const unsigned int *rx_lcores) {
-  if (!create_flow_tables(cfg, rx_lcores, cfg->nb_queues)) {
+static bool create_resources(const struct app_config *cfg) {
+  unsigned int rx_lcores[MAX_QUEUES];
+
+  if (!create_flow_tables(cfg)) {
     return false;
   }
-  if (!create_rings(rx_lcores, cfg->nb_queues)) {
+  if (!create_rings(cfg->nb_queues)) {
     free_flow_tables();
     return false;
+  }
+  for (unsigned int i = 0; i < cfg->nb_queues; i++) {
+    rx_lcores[i] = queue_args[i].rx_lcore;
   }
   if (!flow_export_start(cfg, rx_lcores, cfg->nb_queues)) {
     RTE_LOG(ERR, FLOWFWD, "cannot start flow export\n");
@@ -469,27 +472,23 @@ static bool launch_threads(const struct app_config *cfg,
                            const struct rte_ether_addr *forward_mac,
                            const struct rte_ether_addr *reverse_mac) {
   for (uint16_t queue = 0; queue < nb_queues; queue++) {
-    queue_args[queue] =
-        (struct queue_args){.queue = queue,
-                            .in_port = cfg->in_port,
-                            .out_port = cfg->out_port,
-                            .table = flow_tables[queue],
-                            .forward_mac = forward_mac,
-                            .reverse_mac = reverse_mac,
-                            .in_to_out_ring = in_to_out_rings[queue],
-                            .out_to_in_ring = out_to_in_rings[queue]};
+    struct queue_args *args = &queue_args[queue];
+
+    args->queue = queue;
+    args->in_port = cfg->in_port;
+    args->out_port = cfg->out_port;
+    args->forward_mac = forward_mac;
+    args->reverse_mac = reverse_mac;
     // The consumer is started first, so the ring never fills before it runs.
-    if (rte_eal_remote_launch(tx_main, &queue_args[queue],
-                              tx_lcore_ids[queue]) != 0 ||
-        rte_eal_remote_launch(rx_main, &queue_args[queue],
-                              rx_lcore_ids[queue]) != 0) {
+    if (rte_eal_remote_launch(tx_main, args, args->tx_lcore) != 0 ||
+        rte_eal_remote_launch(rx_main, args, args->rx_lcore) != 0) {
       RTE_LOG(ERR, FLOWFWD, "cannot launch the threads of queue %u\n", queue);
       forward_stop();
       return false;
     }
     RTE_LOG(INFO, FLOWFWD,
             "queue %u: RX thread on lcore %u, TX thread on lcore %u\n", queue,
-            rx_lcore_ids[queue], tx_lcore_ids[queue]);
+            args->rx_lcore, args->tx_lcore);
   }
   return true;
 }
@@ -500,7 +499,7 @@ bool forward_start(const struct app_config *cfg) {
   const struct rte_ether_addr *reverse_mac =
       rewrite_target(cfg->reverse_dst_mac, &reverse_mac_storage);
 
-  if (!pick_lcores(cfg->nb_queues, rx_lcore_ids, tx_lcore_ids)) {
+  if (!pick_lcores(cfg->nb_queues)) {
     return false;
   }
   nb_queues = cfg->nb_queues;
@@ -508,7 +507,7 @@ bool forward_start(const struct app_config *cfg) {
   atomic_store(&tx_quit, false);
   export_cycles = rte_get_tsc_hz() * cfg->export_interval;
 
-  if (!create_resources(cfg, rx_lcore_ids)) {
+  if (!create_resources(cfg)) {
     return false;
   }
   log_rewrite(forward_mac, reverse_mac);
@@ -521,9 +520,9 @@ static void final_export(void) {
   for (unsigned int q = 0; q < nb_queues; q++) {
     struct export_pass pass;
 
-    export_pass_start(&pass, flow_tables[q]);
+    export_pass_start(&pass, queue_args[q].table);
     while (pass.active) {
-      export_pass_step(&pass, (uint16_t)q, flow_tables[q]);
+      export_pass_step(&pass, (uint16_t)q, queue_args[q].table);
       rte_pause();
     }
   }
@@ -534,11 +533,11 @@ static void final_export(void) {
 void forward_stop(void) {
   atomic_store(&rx_quit, true);
   for (unsigned int q = 0; q < nb_queues; q++) {
-    rte_eal_wait_lcore(rx_lcore_ids[q]);
+    rte_eal_wait_lcore(queue_args[q].rx_lcore);
   }
   atomic_store(&tx_quit, true);
   for (unsigned int q = 0; q < nb_queues; q++) {
-    rte_eal_wait_lcore(tx_lcore_ids[q]);
+    rte_eal_wait_lcore(queue_args[q].tx_lcore);
   }
   final_export();
   flow_export_stop();
@@ -546,22 +545,26 @@ void forward_stop(void) {
   free_flow_tables();
 }
 
-uint64_t forward_rx_packets(void) {
+// Sum over the queues of one statistic, given as its offset in struct
+// queue_args.
+static uint64_t sum_stat(size_t offset) {
   uint64_t sum = 0;
 
   for (unsigned int i = 0; i < nb_queues; i++) {
-    sum += atomic_load_explicit(&rx_stats[i].rx_packets, memory_order_relaxed);
+    const atomic_uint_fast64_t *counter =
+        (const atomic_uint_fast64_t *)((const char *)&queue_args[i] + offset);
+
+    sum += atomic_load_explicit(counter, memory_order_relaxed);
   }
   return sum;
 }
 
-uint64_t forward_tx_packets(void) {
-  uint64_t sum = 0;
+uint64_t forward_rx_packets(void) {
+  return sum_stat(offsetof(struct queue_args, rx_stats.rx_packets));
+}
 
-  for (unsigned int i = 0; i < nb_queues; i++) {
-    sum += atomic_load_explicit(&tx_stats[i].tx_packets, memory_order_relaxed);
-  }
-  return sum;
+uint64_t forward_tx_packets(void) {
+  return sum_stat(offsetof(struct queue_args, tx_stats.tx_packets));
 }
 
 static uint64_t port_drops(uint16_t port) {
@@ -574,25 +577,14 @@ static uint64_t port_drops(uint16_t port) {
 }
 
 uint64_t forward_drops(const struct app_config *cfg) {
-  uint64_t drops = port_drops(cfg->in_port) + port_drops(cfg->out_port);
-
-  for (unsigned int i = 0; i < nb_queues; i++) {
-    drops +=
-        atomic_load_explicit(&rx_stats[i].table_drops, memory_order_relaxed);
-    drops +=
-        atomic_load_explicit(&rx_stats[i].ring_drops, memory_order_relaxed);
-    drops += atomic_load_explicit(&tx_stats[i].tx_drops, memory_order_relaxed);
-  }
-  return drops;
+  return port_drops(cfg->in_port) + port_drops(cfg->out_port) +
+         sum_stat(offsetof(struct queue_args, rx_stats.table_drops)) +
+         sum_stat(offsetof(struct queue_args, rx_stats.ring_drops)) +
+         sum_stat(offsetof(struct queue_args, tx_stats.tx_drops));
 }
 
 uint64_t forward_flows(void) {
-  uint64_t sum = 0;
-
-  for (unsigned int i = 0; i < nb_queues; i++) {
-    sum += atomic_load_explicit(&rx_stats[i].flows, memory_order_relaxed);
-  }
-  return sum;
+  return sum_stat(offsetof(struct queue_args, rx_stats.flows));
 }
 
 // Share of the time since the previous call that a thread spent handling
@@ -618,12 +610,12 @@ void forward_load(char *buf, size_t len) {
 
   buf[0] = '\0';
   for (unsigned int i = 0; i < nb_queues && off < len; i++) {
-    unsigned int rx =
-        load_percent(&rx_stats[i].busy_cycles, &rx_stats[i].total_cycles,
-                     &rx_prev_busy[i], &rx_prev_total[i]);
-    unsigned int tx =
-        load_percent(&tx_stats[i].busy_cycles, &tx_stats[i].total_cycles,
-                     &tx_prev_busy[i], &tx_prev_total[i]);
+    unsigned int rx = load_percent(&queue_args[i].rx_stats.busy_cycles,
+                                   &queue_args[i].rx_stats.total_cycles,
+                                   &rx_prev_busy[i], &rx_prev_total[i]);
+    unsigned int tx = load_percent(&queue_args[i].tx_stats.busy_cycles,
+                                   &queue_args[i].tx_stats.total_cycles,
+                                   &tx_prev_busy[i], &tx_prev_total[i]);
 
     off += (size_t)snprintf(buf + off, len - off, "%s%u%%/%u%%",
                             i > 0 ? "," : "", rx, tx);

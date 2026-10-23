@@ -242,7 +242,7 @@ A bounds-checked parser that does not depend on DPDK. It fills a `pkt_info` and 
 | `flow_table_count()` | Number of flows now in the table. |
 | `flow_table_export_begin()` | Starts a new pass over the flows. |
 | `flow_table_export_next()` | Copies the next chunk of flows (5-tuple and counters) into `flow_record` structs; the table keeps the position between calls. Returns 0 when the pass is finished. |
-| `is_trackable()` | True for TCP and UDP frames that have ports. ICMP and non-first fragments are forwarded but not tracked. |
+| `has_5tuple()` | True for TCP and UDP frames that have ports. ICMP and non-first fragments are forwarded but not tracked. |
 | `make_flow_key()` | Builds the hash key (5-tuple, with explicit padding so no byte is uninitialised). |
 
 \subsection unit_forward forward.c / forward.h: the lanes and the threads
@@ -255,7 +255,7 @@ A bounds-checked parser that does not depend on DPDK. It fills a `pkt_info` and 
 | `create_resources()` | Creates the flow tables, the rings and the export files, undoing what it did if a step fails. |
 | `create_flow_tables()` / `free_flow_tables()` | One table per lane, in the memory of its RX core. |
 | `create_rings()` / `create_ring()` / `free_rings()` / `free_ring()` | Two single-producer single-consumer rings per lane. `free_ring()` also frees the packets still waiting in it. |
-| `launch_threads()` | Fills the `queue_args` of each lane and starts its TX thread, then its RX thread, so the consumer exists before the producer. |
+| `launch_threads()` | Fills the rest of each `queue_args` and starts its TX thread, then its RX thread, so the consumer exists before the producer. |
 | `rx_main()` | The RX thread: both interfaces in a loop, the periodic export, the cleaner, and the load and flow counters. |
 | `tx_main()` | The TX thread: both rings in a loop, until stopped and the rings are empty. |
 | `receive_burst()` | Reads one burst from one interface and runs it through filter, MAC rewrite, tracking and enqueue. |
@@ -270,6 +270,7 @@ A bounds-checked parser that does not depend on DPDK. It fills a `pkt_info` and 
 | `add_stat()` | Adds to a single-writer counter with a plain load and store. |
 | `rewrite_target()` / `format_rewrite()` / `log_rewrite()` | Turn the configured MACs into pointers (NULL when unset) and log what was chosen. |
 | `forward_rx_packets()` / `forward_tx_packets()` / `forward_drops()` / `forward_flows()` | Statistics for the main loop, summed over the lanes. |
+| `sum_stat()` | The shared helper behind them: sums one counter over all lanes, given its offset in `struct queue_args`. |
 | `port_drops()` | Drops counted by the NIC itself. |
 | `forward_load()` / `load_percent()` | Load of each thread since the previous call, as text. |
 
@@ -307,7 +308,7 @@ writer thread polls the slots every 50 ms, writes the ready ones with `writer_wr
 | `ip_addr` | An IPv4 or IPv6 address. |
 | `burst_meta` | Per-burst data filled by `flow_table_filter_burst()` and `flow_table_track()`: headers, lengths, slots and generations. |
 | `tx_item` | What the RX thread hands to the TX thread: mbuf, slot, generation and length. |
-| `queue_args` | Everything the two threads of a lane need. |
+| `queue_args` | Everything of one queue in one struct: its RX and TX lcores, flow table, the two rings, the destination-MAC settings and the statistics of both threads. The array `queue_args[]` replaces what used to be several parallel arrays indexed by queue. |
 | `flow_record` | One flow's 5-tuple and counters, as passed to the CSV writer. |
 
 \section arch_files Files the program writes

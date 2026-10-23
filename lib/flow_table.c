@@ -211,7 +211,7 @@ static void expire_flows(struct flow_table *table, uint64_t now,
 // TCP and UDP flows are tracked: they have ports, so the 5-tuple is complete.
 // The timeout removes the ones that stop, so no connection end is needed. A
 // packet without ports is a non-first fragment, or another protocol (ICMP).
-static bool is_trackable(const struct pkt_info *info) {
+static bool has_5tuple(const struct pkt_info *info) {
   return (info->proto == IPPROTO_TCP || info->proto == IPPROTO_UDP) &&
          info->src_port != 0 && info->dst_port != 0;
 }
@@ -253,7 +253,7 @@ void flow_table_track(struct flow_table *table, struct burst_meta *meta) {
   uint64_t now = rte_rdtsc();
 
   for (uint16_t i = 0; i < meta->count; i++) {
-    if (is_trackable(&meta->info[i])) {
+    if (has_5tuple(&meta->info[i])) {
       meta->slot[i] = find_or_add_flow(table, &meta->info[i], meta->len[i], now,
                                        &meta->gen[i]);
     } else {

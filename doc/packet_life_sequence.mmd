@@ -37,7 +37,7 @@ sequenceDiagram
         RX->>RX: rewrite_dst_mac() on IP packets
     end
     RX->>T: flow_table_track()
-    T->>T: is_trackable(): TCP or UDP with ports
+    T->>T: has_5tuple(): TCP or UDP with ports
     alt trackable
         T->>T: find_or_add_flow(): new flow gets gen+1 and tx_*_at_start,<br/>existing flow only updates rx counters and last_seen
         T-->>RX: slot and gen (FLOW_DROP if the table is full)
@@ -71,7 +71,7 @@ sequenceDiagram
         RX->>RX: rewrite_dst_mac() on IP packets
     end
     RX->>T: flow_table_track()
-    T->>T: is_trackable(): TCP or UDP with ports
+    T->>T: has_5tuple(): TCP or UDP with ports
     alt trackable
         T->>T: find_or_add_flow(): the swapped 5-tuple is its own flow entry in the same table,<br/>new flow gets gen+1 and tx_*_at_start, existing flow updates rx counters and last_seen
         T-->>RX: slot and gen (FLOW_DROP if the table is full)
