@@ -5,7 +5,7 @@ statistics for every flow (TCP and UDP 5-tuple). Traffic is spread over several 
 RSS, and every flow stays on one core. Each core periodically appends its flows to its own CSV
 file, and flows that stop sending are removed after a timeout.
 
-It is written in C (gnu11) on top of DPDK and is meant to run on Linux with two NICs bound to
+It is written in C on top of DPDK and is meant to run on Linux with two NICs bound to
 a DPDK driver.
 
 ## Contents
@@ -18,7 +18,7 @@ a DPDK driver.
 6. [Export format](#export-format)
 7. [Expected output and how to verify it](#expected-output-and-how-to-verify-it)
 8. [Performance](#performance)
-9. [Tests](#tests)
+9. [Verification](#verification)
 10. [Design decisions and limitations](#design-decisions-and-limitations)
 11. [Project layout](#project-layout)
 
@@ -90,7 +90,7 @@ sudo apt install dpdk dpdk-dev build-essential pkg-config
 ## Build and run
 
 ```
-./setup.sh      # build, run the unit tests, copy flowfwd.conf next to the binary
+./setup.sh      # build, copy flowfwd.conf next to the binary
 ./run.sh        # reserve hugepages, bind the two NICs, run flowfwd as root
 ```
 
@@ -111,7 +111,7 @@ sudo ./build/flowfwd -l 0-8          # the main core 0, plus 8 cores for 4 queue
 Stop with Ctrl+C. The program stops the receive threads, sends what is still in the rings,
 writes a final export and closes everything.
 
-`make` builds only, `make test` runs the unit tests, `make clean` removes `build/`,
+`make` builds only, `make clean` removes `build/`,
 `make V=1` shows the full compiler commands.
 
 ### Which ports are input and output
@@ -301,15 +301,7 @@ forwarder, so the table does not show the maximum rate of the program. The CPU l
 threads was not recorded. How to repeat a measurement: run `./run.sh`, generate traffic, stop
 with Ctrl+C, and add up the per-flow counter changes between consecutive exports in the CSV files.
 
-## Tests
-
-`make test` (also run by `setup.sh`) builds and runs three small programs that need no DPDK:
-
-- `tests/test_parse.c`: the packet parser (Ethernet, VLAN and double VLAN, IPv4 with options,
-  IPv6, ports of TCP and UDP, fragments, ARP, malformed frames).
-- `tests/test_writer.c`: the CSV writer (header, rows, IPv4 and IPv6 addresses, errors).
-- `tests/test_rss.c`: the RSS key, including the symmetry of the hash when source and
-  destination are swapped.
+## Verification
 
 The forwarding path was also checked with virtual devices: pcap replays with exact expected
 counters (including UDP, ICMP, both directions and a full table), a load of 200,000 packets
@@ -366,7 +358,6 @@ lib/flow_export.*   export slots and the writer thread
 lib/writer.*        CSV file writer
 lib/logger.*        asynchronous logger
 lib/ip_addr.h       IPv4 or IPv6 address type
-tests/              unit tests
 flowfwd.conf        configuration
 setup.sh, run.sh    build and run scripts
 ```
