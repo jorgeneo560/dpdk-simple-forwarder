@@ -1,0 +1,48 @@
+flowchart LR
+    W0["Host A / wire"]
+    W1["Host B / wire"]
+
+    subgraph POOL["Mempool (hugepage memory)"]
+        M["mbufs: 128 B header + frame data<br/>preallocated, free ones wait here"]
+    end
+
+    subgraph P0["NIC port 0, queue q"]
+        RXQ0["RX descriptor ring<br/>addresses of free mbufs"]
+        TXQ0["TX descriptor ring<br/>addresses of mbufs to send"]
+    end
+
+    subgraph P1["NIC port 1, queue q"]
+        RXQ1["RX descriptor ring"]
+        TXQ1["TX descriptor ring"]
+    end
+
+    subgraph LANE["Software, queue q"]
+        RXT["RX thread<br/>rte_eth_rx_burst, parse, flow table"]
+        R1["in_to_out_ring<br/>tx_item: mbuf pointer, slot, gen, len"]
+        R2["out_to_in_ring<br/>tx_item"]
+        TXT["TX thread<br/>rte_eth_tx_burst"]
+    end
+
+    W0 -->|frame| RXQ0
+    W1 -->|frame| RXQ1
+
+    M -. "1. driver fills the descriptors<br/>with free mbuf addresses" .-> RXQ0
+    M -. "same for port 1" .-> RXQ1
+    RXQ0 == "2. NIC writes the frame by DMA<br/>into the mbuf" ==> M
+
+    RXQ0 -->|"3. rx_burst returns mbuf pointers"| RXT
+    RXQ1 -->|"rx_burst"| RXT
+
+    RXT -->|"4a. input to output"| R1
+    RXT -->|"4b. output to input"| R2
+    R1 -->|"5. dequeue pointers"| TXT
+    R2 --> TXT
+
+    TXT -->|"6a. tx_burst to port 1"| TXQ1
+    TXT -->|"6b. tx_burst to port 0"| TXQ0
+    TXQ1 -->|"7. NIC reads the mbuf by DMA"| W1
+    TXQ0 --> W0
+    TXQ1 -. "8. after sending, the mbuf is freed back" .-> M
+    TXQ0 -. "freed back" .-> M
+
+    RXT -. "drop: filter, table full, ring full<br/>rte_pktmbuf_free" .-> M

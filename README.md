@@ -17,9 +17,10 @@ a DPDK driver.
 5. [Flow tracking](#flow-tracking)
 6. [Export format](#export-format)
 7. [Expected output and how to verify it](#expected-output-and-how-to-verify-it)
-8. [Tests](#tests)
-9. [Design decisions and limitations](#design-decisions-and-limitations)
-10. [Project layout](#project-layout)
+8. [Performance](#performance)
+9. [Tests](#tests)
+10. [Design decisions and limitations](#design-decisions-and-limitations)
+11. [Project layout](#project-layout)
 
 ## How it works
 
@@ -250,6 +251,56 @@ The log file has one line per message with a timestamp and the core that logged 
    shows that RSS spreads the flows.
 5. Ctrl+C prints `stopped: ...` and returns to the shell without hanging.
 
+## Performance
+
+The measurement below uses real traffic on real hardware. It is not a controlled sweep of
+packet sizes, and it was not run at 10 Gbit/s.
+
+**Setup.** AMD Ryzen 7 7800X3D, two Intel X540 ports (both links negotiated at 1 Gbit/s),
+DPDK 23.11.4, default configuration with `queues = 4` (9 cores) and no MAC rewrite. The forwarder
+was placed between a router and the onboard NIC of the test PC, and the PC itself generated the
+traffic: web browsing, a YouTube video and the download of a Linux ISO. The run lasted 226 s.
+
+| Result | Value |
+|---|---|
+| Packets received / sent | 4,897,334 / 4,897,281 |
+| Packets dropped (`drops=`) | 0 |
+| Data in tracked flows | 6.94 GB |
+| Distinct 5-tuples seen | 3,707 (1,363 still in the table at the end) |
+| Peak rate (5 s average) | 774 Mbit/s, 67,500 packets/s |
+| Rate during the ISO download | about 650 Mbit/s on average over 80 s (420 to 775 in single 5 s windows) |
+
+**Packet sizes.** Flows grouped by their average packet size (`rx_bytes / rx_packets`), as
+measured from the CSV files:
+
+| Average packet size | Flows | Packets | Share of bytes |
+|---|---|---|---|
+| below 100 B | 1,103 | 238,529 | 0.3% |
+| 100 to 299 B | 1,663 | 19,306 | 0.0% |
+| 300 to 799 B | 796 | 24,078 | 0.2% |
+| 800 to 1299 B | 143 | 49,642 | 0.9% |
+| 1300 B and above | 23 | 4,564,980 | 98.6% |
+
+The ISO download is one TCP flow of 6.79 GB with an average data frame of 1,502 B (Ethernet
+header included); its ACKs, in the other direction, average 79 B. The QUIC video flows average
+1,150 to 1,320 B.
+
+**What the numbers show**
+- No packet was lost: `drops=0`, and for every tracked flow the received and sent counters
+  are equal (4,896,535 packets in both directions).
+- `rx` is 53 packets higher than `tx`: these are frames the filter removed on purpose
+  (not IP or malformed), which are not counted in `drops=`.
+- Flow affinity: both directions of the ISO download were handled by one thread. That thread
+  carried 4.77 million of the 4.90 million packets, the other three 22,000 to 58,000 each.
+  A single flow cannot use more than one core, by design.
+- Export: every core wrote a record set once per second for the whole run (222 to 224
+  exports in 226 s, never more than 1.00 s apart).
+
+**Limits of this measurement.** The download speed was set by the internet source, not by the
+forwarder, so the table does not show the maximum rate of the program. The CPU load of the
+threads was not recorded. How to repeat a measurement: run `./run.sh`, generate traffic, stop
+with Ctrl+C, and add up the per-flow counter changes between consecutive exports in the CSV files.
+
 ## Tests
 
 `make test` (also run by `setup.sh`) builds and runs three small programs that need no DPDK:
@@ -263,7 +314,7 @@ The log file has one line per message with a timestamp and the core that logged 
 The forwarding path was also checked with virtual devices: pcap replays with exact expected
 counters (including UDP, ICMP, both directions and a full table), a load of 200,000 packets
 in 1,000 flows where the CSV totals match the statistics line, and start and stop with several
-queues. This repository does not include throughput measurements on real hardware.
+queues. The real-hardware measurement is in [Performance](#performance).
 
 ## Design decisions and limitations
 
