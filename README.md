@@ -232,8 +232,7 @@ timestamp,src_ip,dst_ip,src_port,dst_port,protocol,rx_bytes,tx_bytes,rx_packets,
 
 ## Expected output and how to verify it
 
-A short run with the virtual pcap ports above (5 TCP and 3 UDP packets in the forward direction,
-4 TCP packets in the reverse direction):
+Example. A short run with a few TCP and UDP packets in each direction prints this:
 
 ```
 FLOWFWD: logger started: file log.txt, level 2
@@ -285,8 +284,7 @@ The log file has one line per message with a timestamp and the core that logged 
 
 ## Performance
 
-The measurement below uses real traffic on real hardware. It is not a controlled sweep of
-packet sizes, and it was not run at 10 Gbit/s.
+The measurement below uses real traffic on real hardware.
 
 **Setup.** AMD Ryzen 7 7800X3D, two Intel X540 ports (both links negotiated at 1 Gbit/s),
 DPDK 23.11.4, default configuration with `queues = 4` (9 cores) and no MAC rewrite. The forwarder
@@ -342,7 +340,9 @@ changes between consecutive exports in the CSV files of the RX cores.
 
 The log of this run (181 lines, one statistics line per second) is in
 [doc/performance_run.log](doc/performance_run.log), copied unchanged from `build/log.txt`.
-The CSV files are not included because they are tens of megabytes.
+The eight CSV files of the run are in [doc/performance_run/](doc/performance_run/), compressed
+with gzip (`zcat doc/performance_run/flow_stats_core_5.csv.gz | head` shows one). The two
+files of each queue are identical (1 and 2, 3 and 4, 5 and 6, 7 and 8).
 
 ## Verification
 
