@@ -1,0 +1,27 @@
+<map id="lib/hugepages.c" name="lib/hugepages.c">
+<area shape="rect" id="Node000001" title=" " alt="" coords="454,5,578,31"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,79,77,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="454,29,290,50,91,81,91,81,90,76,90,76,289,45,453,24"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="102,79,170,104"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="454,32,184,81,183,76,453,27"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="194,79,257,104"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="468,33,271,81,270,76,467,28"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="281,79,351,104"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="485,33,363,76,361,71,483,28"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="375,79,457,104"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="501,33,445,73,442,68,498,29"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="481,79,551,104"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="519,31,519,65,513,65,513,31"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="576,79,643,104"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="533,29,585,68,582,72,529,33"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="667,79,738,104"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="547,28,660,71,659,76,545,33"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="763,79,843,104"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="563,28,750,74,749,79,561,33"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="867,79,941,104"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="579,27,854,76,853,81,578,32"/>
+<area shape="rect" id="Node000012" href="$hugepages_8h.html" title=" " alt="" coords="966,79,1071,104"/>
+<area shape="poly" id="edge11_Node000001_Node000012" title=" " alt="" coords="578,24,953,76,952,81,578,30"/>
+<area shape="rect" id="Node000013" title=" " alt="" coords="977,152,1060,177"/>
+<area shape="poly" id="edge12_Node000012_Node000013" title=" " alt="" coords="1021,104,1021,138,1016,138,1016,104"/>
+</map>

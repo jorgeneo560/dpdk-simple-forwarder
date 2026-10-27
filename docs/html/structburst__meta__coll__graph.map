@@ -1,0 +1,7 @@
+<map id="burst_meta" name="burst_meta">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,196,101,221"/>
+<area shape="rect" id="Node000002" href="$structpkt__info.html" title=" " alt="" coords="16,108,91,133"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="56,147,56,195,51,195,51,147"/>
+<area shape="rect" id="Node000003" href="$unionip__addr.html" title=" " alt="" coords="18,5,89,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="56,45,56,108,51,108,51,45"/>
+</map>

@@ -10,7 +10,8 @@ a DPDK driver.
 
 > **The best way to see how the project is built is the Doxygen documentation**: it has the
 > architecture diagrams, the life of a packet and the description of every file and function in
-> one browsable place. See [Code documentation](#code-documentation) to generate it or simple open docs/html/index.html.
+> one browsable place. See [Code documentation](#code-documentation): the generated HTML is in
+> `docs/html/`, so after cloning you can open `docs/html/index.html` directly.
 
 ## Contents
 
@@ -145,7 +146,9 @@ driver can be used to check start-up and shutdown with several queues.
 ### Code documentation
 
 The sources are commented for Doxygen, and the generated HTML is the best way to read the
-project: the diagrams are drawn, and every file, function and structure is linked. To build it:
+project: the diagrams are drawn, and every file, function and structure is linked. The generated
+HTML is stored in the repository (`docs/html/`), so it can be opened right after cloning. To
+build it again:
 
 ```
 sudo apt install doxygen graphviz
@@ -154,8 +157,9 @@ doxygen Doxyfile
 
 Open `docs/html/index.html`. It contains this README, an architecture page (lanes and threads,
 the life of a packet as a sequence diagram, what each source file does and its functions) and
-the reference of every file, function and structure. The `docs/` folder is generated and not
-stored in the repository. The diagrams are also kept as Mermaid sources in `doc/*.mmd`.
+the reference of every file, function and structure. The HTML in `docs/` is generated from the
+sources and `doc/`, so run `doxygen Doxyfile` again after changing them. The diagrams are also
+kept as Mermaid sources in `doc/*.mmd`.
 
 ## Configuration
 

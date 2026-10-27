@@ -1,0 +1,28 @@
+var searchData=
+[
+  ['scan_5fnics_0',['scan_nics',['../nics_8c.html#a90115b1efd4b26733dbc36c55de1a1dd',1,'nics.c']]],
+  ['section_1',['section',['../structoption.html#a330e210f9eaacd626a9edc421cbbb2f5',1,'option::section'],['../structmac__option.html#a59d3932d762fb1af9ddc9d8d554f3e69',1,'mac_option::section'],['../structstring__option.html#af8ad258f96aabbb94d25d5cdb101c7a4',1,'string_option::section']]],
+  ['send_5fburst_2',['send_burst',['../forward_8c.html#a941fb0260a8a268394c5c67c5357ade7',1,'forward.c']]],
+  ['set_5fdefaults_3',['set_defaults',['../config_8c.html#a8c44370e1a7f75604cdd9ae6170d82f8',1,'config.c']]],
+  ['settings_4',['config.c / config.h: the settings',['../architecture.html#unit_config',1,'']]],
+  ['shared_20types_20and_20constants_5',['Shared types and constants',['../architecture.html#arch_types',1,'']]],
+  ['shutdown_6',['Shutdown',['../architecture.html#arch_shutdown',1,'']]],
+  ['size_7',['size',['../structoption.html#a5acce6a2816111e555a6808496ee3dd3',1,'option::size'],['../structstring__option.html#a0e04b9e3589054dd59d448fffaaa2a4f',1,'string_option::size']]],
+  ['slot_8',['slot',['../structburst__meta.html#a46bf32155664209330e8d7c526659402',1,'burst_meta::slot'],['../structtx__item.html#acf34f393329829c40e428aa1874dca27',1,'tx_item::slot'],['../structslot.html',1,'slot']]],
+  ['slots_9',['slots',['../flow__export_8c.html#aecc63055636e393014c080df9c5ed9a6',1,'flow_export.c']]],
+  ['src_5fip_10',['src_ip',['../structpkt__info.html#af134dbb177c4422f3601aaa3d0c2efe3',1,'pkt_info::src_ip'],['../structflow__record.html#a7dbb378e781dcabf62d64dd8bcd0db05',1,'flow_record::src_ip'],['../structflow__key.html#a3fde621f5c488ec629897f403d139521',1,'flow_key::src_ip']]],
+  ['src_5fport_11',['src_port',['../structflow__key.html#a3ec1b27b7cbcb063975f77f02f4d3f44',1,'flow_key::src_port'],['../structflow__record.html#afae782a8a964e7c44c498dff25299356',1,'flow_record::src_port'],['../structpkt__info.html#a4a6512a2831adcaad060627a29f6827f',1,'pkt_info::src_port']]],
+  ['start_5fport_12',['start_port',['../ports_8c.html#a6b5902bbf52d2f72dfdedab2d3ce8049',1,'ports.c']]],
+  ['started_13',['started',['../flow__export_8c.html#a43c08d193d555a2b2a61c53d2a4e5a63',1,'started:&#160;flow_export.c'],['../logger_8c.html#a43c08d193d555a2b2a61c53d2a4e5a63',1,'started:&#160;logger.c']]],
+  ['startup_20in_20the_20order_20tt_20main_20tt_20does_20it_14',['Startup, in the order &lt;tt&gt;main()&lt;/tt&gt; does it',['../architecture.html#arch_startup',1,'']]],
+  ['statistics_20line_15',['The numbers on the statistics line',['../architecture.html#arch_counters',1,'']]],
+  ['stop_5fport_16',['stop_port',['../ports_8c.html#a19afd45909f5665ec83422068f8e83a4',1,'ports.c']]],
+  ['stopping_17',['stopping',['../flow__export_8c.html#a0d0bda1e8f8df6b575574796062bdd91',1,'stopping:&#160;flow_export.c'],['../logger_8c.html#a3065b71ea2455fb184ad978b7a8bd496',1,'stopping:&#160;logger.c']]],
+  ['store_5fvalue_18',['store_value',['../config_8c.html#a3e7c8efae11cb7c9653c53aaa8ef80f2',1,'config.c']]],
+  ['stream_19',['stream',['../logger_8c.html#a867a8cb54d3231f2acbfaa44fb31d6c4',1,'logger.c']]],
+  ['stream_5fwrite_20',['stream_write',['../logger_8c.html#a2097045a72ac4b5ce721a8eeb4f83a0f',1,'logger.c']]],
+  ['string_5foption_21',['string_option',['../config_8c.html#a9f7819657aa709791c0604dd1f34617c',1,'STRING_OPTION:&#160;config.c'],['../structstring__option.html',1,'string_option']]],
+  ['string_5foptions_22',['string_options',['../config_8c.html#a8a040a719ecfdc61ca3eb2be5d5e7940',1,'config.c']]],
+  ['sum_5fstat_23',['sum_stat',['../forward_8c.html#a694a5d1fec665a26f62c8c21f0c19b3a',1,'forward.c']]],
+  ['symmetric_20hash_20key_24',['rss.c: the symmetric hash key',['../architecture.html#unit_rss',1,'']]]
+];

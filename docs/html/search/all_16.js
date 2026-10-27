@@ -1,0 +1,27 @@
+var searchData=
+[
+  ['wake_0',['wake',['../logger_8c.html#a8073edf9b9d2c197ef8e12b5769743a0',1,'logger.c']]],
+  ['what_20why_20there_20are_20no_20locks_1',['Who may write what (why there are no locks)',['../architecture.html#arch_rules',1,'']]],
+  ['which_20network_20devices_20dpdk_20will_20use_2',['nics.c: which network devices DPDK will use',['../architecture.html#unit_nics',1,'']]],
+  ['which_20ports_20are_20input_20and_20output_3',['Which ports are input and output',['../md_README.html#which-ports-are-input-and-output',1,'']]],
+  ['who_20may_20write_20what_20why_20there_20are_20no_20locks_4',['Who may write what (why there are no locks)',['../architecture.html#arch_rules',1,'']]],
+  ['why_20there_20are_20no_20locks_5',['Who may write what (why there are no locks)',['../architecture.html#arch_rules',1,'']]],
+  ['will_20use_6',['nics.c: which network devices DPDK will use',['../architecture.html#unit_nics',1,'']]],
+  ['with_20per_20flow_20tracking_7',['flowfwd: a DPDK packet forwarder with per-flow tracking',['../md_README.html',1,'index']]],
+  ['without_20hardware_8',['Running without hardware',['../md_README.html#running-without-hardware',1,'']]],
+  ['works_9',['How it works',['../md_README.html#how-it-works',1,'']]],
+  ['works_20unit_20by_20unit_10',['How flowfwd works, unit by unit',['../architecture.html',1,'index']]],
+  ['write_20what_20why_20there_20are_20no_20locks_11',['Who may write what (why there are no locks)',['../architecture.html#arch_rules',1,'']]],
+  ['write_5fmsg_12',['write_msg',['../logger_8c.html#af3330905a699befba9b08be355543858',1,'logger.c']]],
+  ['writer_13',['writer',['../structwriter.html',1,'']]],
+  ['writer_20c_3a_20the_20csv_20file_14',['writer.c: the CSV file',['../architecture.html#unit_writer',1,'']]],
+  ['writer_2ec_15',['writer.c',['../writer_8c.html',1,'']]],
+  ['writer_2eh_16',['writer.h',['../writer_8h.html',1,'']]],
+  ['writer_5fclose_17',['writer_close',['../writer_8h.html#ab9b7e96b25d5daec078aba27e94ade4e',1,'writer_close(struct writer *e):&#160;writer.c'],['../writer_8c.html#ab9b7e96b25d5daec078aba27e94ade4e',1,'writer_close(struct writer *e):&#160;writer.c']]],
+  ['writer_5fmain_18',['writer_main',['../flow__export_8c.html#a5b9a5edccd0b775d075014130bc1d071',1,'flow_export.c']]],
+  ['writer_5fopen_19',['writer_open',['../writer_8h.html#a2f5de8d19947ff81a0ce3cfbcce4e9ef',1,'writer_open(struct writer *e, const char *path):&#160;writer.c'],['../writer_8c.html#a2f5de8d19947ff81a0ce3cfbcce4e9ef',1,'writer_open(struct writer *e, const char *path):&#160;writer.c']]],
+  ['writer_5fpoll_5fns_20',['WRITER_POLL_NS',['../flow__export_8c.html#a0140cb9c08b81d667e954454ef371ee0',1,'flow_export.c']]],
+  ['writer_5fwrite_21',['writer_write',['../writer_8h.html#ad87efdd82c25b6985ab4470e0e45213d',1,'writer_write(struct writer *e, const struct timespec *ts, const struct flow_record *recs, size_t n):&#160;writer.c'],['../writer_8c.html#ad87efdd82c25b6985ab4470e0e45213d',1,'writer_write(struct writer *e, const struct timespec *ts, const struct flow_record *recs, size_t n):&#160;writer.c']]],
+  ['writers_22',['writers',['../flow__export_8c.html#ac335825d9150d8b864e10d2bddf80b65',1,'flow_export.c']]],
+  ['writes_23',['Files the program writes',['../architecture.html#arch_files',1,'']]]
+];

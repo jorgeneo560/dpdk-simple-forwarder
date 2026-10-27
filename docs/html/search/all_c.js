@@ -1,0 +1,26 @@
+var searchData=
+[
+  ['mac_5foption_0',['mac_option',['../structmac__option.html',1,'']]],
+  ['mac_5foptions_1',['mac_options',['../config_8c.html#a2fb24a6000b890e783f51cc393eae986',1,'config.c']]],
+  ['main_2',['main',['../main_8c.html#a3c04138a5bfe5d72780bb7e82a18e627',1,'main.c']]],
+  ['main_20c_3a_20the_20program_3',['main.c: the program',['../architecture.html#unit_main',1,'']]],
+  ['main_20tt_20does_20it_4',['Startup, in the order &lt;tt&gt;main()&lt;/tt&gt; does it',['../architecture.html#arch_startup',1,'']]],
+  ['main_2ec_5',['main.c',['../main_8c.html',1,'']]],
+  ['mainpage_2edox_6',['mainpage.dox',['../mainpage_8dox.html',1,'']]],
+  ['make_5fflow_5fkey_7',['make_flow_key',['../flow__table_8c.html#a8b1dc38e3374cc01c0926a3220e681fe',1,'flow_table.c']]],
+  ['make_5fitems_8',['make_items',['../forward_8c.html#af13002798b9c8b79dcbb048169c87cd3',1,'forward.c']]],
+  ['max_9',['max',['../structoption.html#a760b4317ffc0c7d1c59ddbe9f9772c9d',1,'option']]],
+  ['max_5fnics_10',['MAX_NICS',['../nics_8c.html#ab44d92c45e9155a2b343f0372630ec35',1,'nics.c']]],
+  ['max_5fqueues_11',['MAX_QUEUES',['../config_8h.html#a16d3fa04757c66ba1c3228f57e1be03d',1,'config.h']]],
+  ['max_5fsection_5flen_12',['MAX_SECTION_LEN',['../config_8c.html#afb057850ee66302542a6c15c5ac050e8',1,'config.c']]],
+  ['max_5ftable_5fsize_13',['MAX_TABLE_SIZE',['../config_8c.html#a48d3ccc21ddc04633ef7cd7e80dbb987',1,'config.c']]],
+  ['max_5fvlan_5ftags_14',['MAX_VLAN_TAGS',['../parse_8c.html#ad0e517ba6e2559990920bd191ec12a6f',1,'parse.c']]],
+  ['may_20write_20what_20why_20there_20are_20no_20locks_15',['Who may write what (why there are no locks)',['../architecture.html#arch_rules',1,'']]],
+  ['mbuf_16',['mbuf',['../structtx__item.html#a41e67b99545bf052024692964906def5',1,'tx_item']]],
+  ['mbuf_5fcache_17',['MBUF_CACHE',['../ports_8c.html#aff7b5c03d15eefed7ec8ba88836914e6',1,'ports.c']]],
+  ['mbuf_5fdata_5flen_18',['MBUF_DATA_LEN',['../ports_8c.html#a1e0ecf7b3e1e4f7f825993cb0cafdccc',1,'ports.c']]],
+  ['mbuf_5fpool_19',['mbuf_pool',['../ports_8c.html#a2d434a00d6eaf8db6a5a8450829d04ae',1,'ports.c']]],
+  ['memory_20pre_20checks_20',['hugepages.c: memory pre-checks',['../architecture.html#unit_hugepages',1,'']]],
+  ['min_21',['min',['../structoption.html#a5bafb5b52d763cf1ffe4a7ea18f53fa3',1,'option']]],
+  ['min_5ftable_5fsize_22',['MIN_TABLE_SIZE',['../config_8c.html#aa2d11c3aa8ec67eb6b7e08a93db0a807',1,'config.c']]]
+];
