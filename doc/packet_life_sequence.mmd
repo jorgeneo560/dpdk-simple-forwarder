@@ -96,7 +96,7 @@ sequenceDiagram
         RX->>T: flow_table_export_next()
         RX->>X: flow_export_commit() (slot marked ready)
     end
-    X->>X: writer_main polls every 50 ms, writer_write() appends rows to flow_stats_core_N.csv
+    X->>X: writer_main polls every 50 ms, writer_write() appends the same rows to the two files of the queue (flow_stats_core_N.csv of its RX core and of its TX core)
     M->>RX: every second: forward_rx_packets, forward_tx_packets, forward_drops, forward_flows, forward_load
     M->>M: RTE_LOG to stream_write to logger_main to log.txt
     end

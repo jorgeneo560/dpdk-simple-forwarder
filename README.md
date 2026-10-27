@@ -153,10 +153,9 @@ doxygen Doxyfile
 ```
 
 Open `docs/html/index.html`. It contains this README, an architecture page (lanes and threads,
-the life of a packet as a sequence diagram, memory and queues, what each source file does and
-its functions) and the reference of every file, function and structure. The `docs/` folder is
-generated and not stored in the repository. The diagrams are also kept as Mermaid sources in
-`doc/*.mmd`.
+the life of a packet as a sequence diagram, what each source file does and its functions) and
+the reference of every file, function and structure. The `docs/` folder is generated and not
+stored in the repository. The diagrams are also kept as Mermaid sources in `doc/*.mmd`.
 
 ## Configuration
 
