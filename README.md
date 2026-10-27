@@ -8,6 +8,10 @@ file, and flows that stop sending are removed after a timeout.
 It is written in C on top of DPDK and is meant to run on Linux with two NICs bound to
 a DPDK driver.
 
+> **The best way to see how the project is built is the Doxygen documentation**: it has the
+> architecture diagrams, the life of a packet and the description of every file and function in
+> one browsable place. See [Code documentation](#code-documentation) to generate it or simple open docs/html/index.html.
+
 ## Contents
 
 1. [How it works](#how-it-works)
@@ -79,6 +83,7 @@ the second one is the TX thread.
 | Two NICs bound to `vfio-pci`, `uio_pci_generic` or `igb_uio` | `dpdk-devbind.py` (part of the DPDK package) does the binding |
 | `sudo` | DPDK needs root (hugepages, device access) |
 | Optional: `tshark` | to inspect the pcap files in the virtual-device test |
+| Optional: `doxygen`, `graphviz` | to build the HTML code documentation (see [Code documentation](#code-documentation)) |
 
 Developed on an AMD Ryzen 7 7800X3D with an Intel X540-AT2 (two 10 GbE ports,
 `uio_pci_generic`).
@@ -136,6 +141,22 @@ cd build
 Each `rx_pcap` file is played into the input of that port, and the forwarded packets are written
 to the `tx_pcap` file of the other one (`tshark -r out1.pcap` shows them). The `net_null`
 driver can be used to check start-up and shutdown with several queues.
+
+### Code documentation
+
+The sources are commented for Doxygen, and the generated HTML is the best way to read the
+project: the diagrams are drawn, and every file, function and structure is linked. To build it:
+
+```
+sudo apt install doxygen graphviz
+doxygen Doxyfile
+```
+
+Open `docs/html/index.html`. It contains this README, an architecture page (lanes and threads,
+the life of a packet as a sequence diagram, memory and queues, what each source file does and
+its functions) and the reference of every file, function and structure. The `docs/` folder is
+generated and not stored in the repository. The diagrams are also kept as Mermaid sources in
+`doc/*.mmd`.
 
 ## Configuration
 
@@ -269,6 +290,8 @@ traffic: web browsing, a YouTube video and the download of a Linux ISO. The run 
 | Distinct 5-tuples seen | 3,707 (1,363 still in the table at the end) |
 | Peak rate (5 s average) | 774 Mbit/s, 67,500 packets/s |
 | Rate during the ISO download | about 650 Mbit/s on average over 80 s (420 to 775 in single 5 s windows) |
+| Peak packet rate (one second, statistics line) | 80,476 packets/s |
+| Thread load during the ISO download (statistics line) | busiest RX thread 4% on average, 9% at most; its TX thread 1% at most; the other six threads 0% |
 
 **Packet sizes.** Flows grouped by their average packet size (`rx_bytes / rx_packets`), as
 measured from the CSV files:
@@ -297,9 +320,16 @@ header included); its ACKs, in the other direction, average 79 B. The QUIC video
   exports in 226 s, never more than 1.00 s apart).
 
 **Limits of this measurement.** The download speed was set by the internet source, not by the
-forwarder, so the table does not show the maximum rate of the program. The CPU load of the
-threads was not recorded. How to repeat a measurement: run `./run.sh`, generate traffic, stop
-with Ctrl+C, and add up the per-flow counter changes between consecutive exports in the CSV files.
+forwarder, so the table does not show the maximum rate of the program. It shows that at about
+650 Mbit/s the busiest thread spent less than 10% of its time handling packets (the `load(rx/tx)`
+values are in `log.txt`, one line per second; a thread counts as busy in every pass of its loop
+that handled at least one packet). How to repeat a measurement: run `./run.sh`, generate
+traffic, stop with Ctrl+C, and add up the per-flow counter changes between consecutive exports
+in the CSV files.
+
+The log of this run (243 lines, one statistics line per second) is in
+[doc/performance_run.log](doc/performance_run.log), copied unchanged from `build/log.txt`.
+The CSV files are not included because they are tens of megabytes.
 
 ## Verification
 
@@ -360,4 +390,5 @@ lib/logger.*        asynchronous logger
 lib/ip_addr.h       IPv4 or IPv6 address type
 flowfwd.conf        configuration
 setup.sh, run.sh    build and run scripts
+Doxyfile, doc/      Doxygen configuration, architecture pages and diagram sources
 ```
