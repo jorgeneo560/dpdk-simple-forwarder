@@ -341,8 +341,7 @@ changes between consecutive exports in the CSV files of the RX cores.
 The log of this run (181 lines, one statistics line per second) is in
 [doc/performance_run.log](doc/performance_run.log), copied unchanged from `build/log.txt`.
 The eight CSV files of the run are in [doc/performance_run/](doc/performance_run/), compressed
-with gzip (`zcat doc/performance_run/flow_stats_core_5.csv.gz | head` shows one). The two
-files of each queue are identical (1 and 2, 3 and 4, 5 and 6, 7 and 8).
+with gzip (`zcat doc/performance_run/flow_stats_core_5.csv.gz | head` shows one).
 
 ## Verification
 
