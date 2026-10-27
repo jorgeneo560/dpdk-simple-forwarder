@@ -2,7 +2,7 @@
 \mainpage flowfwd
 
 `flowfwd` is a DPDK packet forwarder: it receives packets on one interface, forwards them to another, and keeps
-per-flow (5-tuple) statistics that it exports to one CSV file per core.
+per-flow (5-tuple) statistics that it exports to one CSV file per worker core.
 
 Start here:
 

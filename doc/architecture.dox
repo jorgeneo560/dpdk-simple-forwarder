@@ -250,7 +250,7 @@ A bounds-checked parser that does not depend on DPDK. It fills a `pkt_info` and 
 | Function | Purpose |
 |---|---|
 | `forward_start()` | Starts the forwarding: picks lcores, creates resources, launches the threads. |
-| `forward_stop()` | Stops it in the safe order (see \ref arch_shutdown). |
+| `forward_stop()` | Stops it in the safe order (see \ref arch_shutdown) and logs one summary line per queue with the totals of its RX and TX thread. |
 | `pick_lcores()` | Takes the worker cores in pairs, the first of a pair for the RX thread and the second for the TX thread. Fails if there are fewer than `2 * queues`. |
 | `create_resources()` | Creates the flow tables, the rings and the export files, undoing what it did if a step fails. |
 | `create_flow_tables()` / `free_flow_tables()` | One table per lane, in the memory of its RX core. |
@@ -277,11 +277,11 @@ A bounds-checked parser that does not depend on DPDK. It fills a `pkt_info` and 
 \subsection unit_flow_export flow_export.c: from the tables to the CSV files
 
 Each RX thread owns a **slot** with room for `FLOW_EXPORT_MAX` records. It fills the slot and marks it ready. One
-writer thread polls the slots every 50 ms, writes the ready ones with `writer_write()` and marks them free.
+writer thread polls the slots every 50 ms, writes each ready slot with `writer_write()` to the two files of its lane (the RX core's and the TX core's, same rows) and marks it free. The TX thread cannot read the table itself, because only the RX thread may touch it, so the TX core's file is written from the RX thread's snapshot.
 
 | Function | Purpose |
 |---|---|
-| `flow_export_start()` | Opens `flow_stats_core_<core_id>.csv` for each lane, one file per RX core, and starts the writer thread. |
+| `flow_export_start()` | Opens two files per lane, `flow_stats_core_<core_id>.csv` for its RX core and for its TX core, and starts the writer thread. |
 | `flow_export_begin()` | Gives an RX thread its slot's buffer to fill, or NULL if the writer has not taken the previous chunk yet. |
 | `flow_export_commit()` | Marks the slot ready, with the timestamp and the number of records. |
 | `flow_export_stop()` | Lets the writer thread do one last scan, then joins it and closes the files. |
@@ -315,6 +315,6 @@ writer thread polls the slots every 50 ms, writes the ready ones with `writer_wr
 
 | File | Content |
 |---|---|
-| `flow_stats_core_<core_id>.csv` | One row per flow per export, appended: `timestamp,src_ip,dst_ip,src_port,dst_port,protocol,rx_bytes,tx_bytes,rx_packets,tx_packets`. One file per RX core. Counters are cumulative since the flow was created. |
+| `flow_stats_core_<core_id>.csv` | One row per flow per export, appended: `timestamp,src_ip,dst_ip,src_port,dst_port,protocol,rx_bytes,tx_bytes,rx_packets,tx_packets`. One file per worker core; the RX core and the TX core of a queue write the same rows. Counters are cumulative since the flow was created. |
 | `log.txt` | The log, appended (the name and level come from `flowfwd.conf`). |
 */

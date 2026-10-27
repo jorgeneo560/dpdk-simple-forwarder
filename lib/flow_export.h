@@ -13,19 +13,22 @@
 #define FLOW_EXPORT_MAX 4096
 
 /**
- * @brief Opens one CSV file per worker and starts the writer thread.
+ * @brief Opens the CSV files and starts the writer thread.
  *
- * Opens flow_stats_core_<lcore>.csv (next to the config file) for each worker
- * lcore. The workers never touch files: they fill a buffer and the writer
- * thread writes it out.
+ * Each queue gets two files, flow_stats_core_<lcore>.csv for its RX lcore and
+ * one for its TX lcore (next to the config file). Both receive the same rows,
+ * so the rows of a queue must be counted once, not twice. The workers never
+ * touch files: they fill a buffer and the writer thread writes it out.
  *
- * @param cfg    Configuration (file location, export interval for the log).
- * @param lcores Worker lcores; worker i uses lcores[i].
- * @param n      Number of workers.
+ * @param cfg       Configuration (file location, export interval for the log).
+ * @param rx_lcores RX lcore of each queue; queue i uses rx_lcores[i].
+ * @param tx_lcores TX lcore of each queue; queue i uses tx_lcores[i].
+ * @param n         Number of queues.
  * @return true on success, false on failure (message logged).
  */
-bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores,
-                       unsigned int n);
+bool flow_export_start(const struct app_config *cfg,
+                       const unsigned int *rx_lcores,
+                       const unsigned int *tx_lcores, unsigned int n);
 
 /**
  * @brief Worker side, step 1: gets the buffer to fill.

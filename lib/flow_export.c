@@ -26,8 +26,12 @@ struct slot {
   struct flow_record recs[FLOW_EXPORT_MAX];
 };
 
+// Each queue has two files, one named after its RX core and one after its TX
+// core. Both get the same rows.
+enum { FILE_RX, FILE_TX, FILES_PER_QUEUE };
+
 static struct slot slots[MAX_QUEUES];
-static struct writer writers[MAX_QUEUES];
+static struct writer writers[MAX_QUEUES][FILES_PER_QUEUE];
 static unsigned int nb_slots;
 static pthread_t thread;
 static atomic_bool stopping;
@@ -47,9 +51,11 @@ static void *writer_main(void *arg) {
       if (!atomic_load_explicit(&s->ready, memory_order_acquire)) {
         continue;
       }
-      if (!writer_write(&writers[i], &s->ts, s->recs, s->n)) {
-        RTE_LOG(ERR, FLOWFWD, "export write failed for worker %u: %s\n", i,
-                strerror(errno));
+      for (unsigned int f = 0; f < FILES_PER_QUEUE; f++) {
+        if (!writer_write(&writers[i][f], &s->ts, s->recs, s->n)) {
+          RTE_LOG(ERR, FLOWFWD, "export write failed for queue %u: %s\n", i,
+                  strerror(errno));
+        }
       }
       atomic_store_explicit(&s->ready, false, memory_order_release);
     }
@@ -62,12 +68,36 @@ static void *writer_main(void *arg) {
 
 static void close_exporters(unsigned int n) {
   for (unsigned int i = 0; i < n; i++) {
-    writer_close(&writers[i]);
+    for (unsigned int f = 0; f < FILES_PER_QUEUE; f++) {
+      writer_close(&writers[i][f]);
+    }
   }
 }
 
-bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores,
-                       unsigned int n) {
+// Opens flow_stats_core_<lcore>.csv in the export directory.
+static bool open_file(const struct app_config *cfg, unsigned int lcore,
+                      struct writer *w) {
+  char name[48], path[PATH_MAX];
+
+  snprintf(name, sizeof(name), "flow_stats_core_%u.csv", lcore);
+  if ((size_t)snprintf(path, sizeof(path), "%s/%s", cfg->export_dir, name) >=
+      sizeof(path)) {
+    RTE_LOG(ERR, FLOWFWD, "export file name too long: %s\n", name);
+    return false;
+  }
+  if (!writer_open(w, path)) {
+    RTE_LOG(ERR, FLOWFWD, "cannot open export file %s: %s\n", path,
+            strerror(errno));
+    return false;
+  }
+  RTE_LOG(INFO, FLOWFWD, "lcore %u: flow statistics go to %s every %us\n",
+          lcore, path, cfg->export_interval);
+  return true;
+}
+
+bool flow_export_start(const struct app_config *cfg,
+                       const unsigned int *rx_lcores,
+                       const unsigned int *tx_lcores, unsigned int n) {
   if (started) {
     RTE_LOG(ERR, FLOWFWD, "flow export already started\n");
     return false;
@@ -79,25 +109,16 @@ bool flow_export_start(const struct app_config *cfg, const unsigned int *lcores,
   }
 
   for (unsigned int i = 0; i < n; i++) {
-    char name[48], path[PATH_MAX];
-
-    snprintf(name, sizeof(name), "flow_stats_core_%u.csv", lcores[i]);
-    if ((size_t)snprintf(path, sizeof(path), "%s/%s", cfg->export_dir, name) >=
-        sizeof(path)) {
-      RTE_LOG(ERR, FLOWFWD, "export file name too long: %s\n", name);
+    if (!open_file(cfg, rx_lcores[i], &writers[i][FILE_RX])) {
       close_exporters(i);
       return false;
     }
-
-    if (!writer_open(&writers[i], path)) {
-      RTE_LOG(ERR, FLOWFWD, "cannot open export file %s: %s\n", path,
-              strerror(errno));
+    if (!open_file(cfg, tx_lcores[i], &writers[i][FILE_TX])) {
+      writer_close(&writers[i][FILE_RX]);
       close_exporters(i);
       return false;
     }
     atomic_store(&slots[i].ready, false);
-    RTE_LOG(INFO, FLOWFWD, "lcore %u: flow statistics go to %s every %us\n",
-            lcores[i], path, cfg->export_interval);
   }
 
   nb_slots = n;

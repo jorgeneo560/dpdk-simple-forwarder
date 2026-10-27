@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -447,7 +448,7 @@ static bool pick_lcores(unsigned int nb) {
 }
 
 static bool create_resources(const struct app_config *cfg) {
-  unsigned int rx_lcores[MAX_QUEUES];
+  unsigned int rx_lcores[MAX_QUEUES], tx_lcores[MAX_QUEUES];
 
   if (!create_flow_tables(cfg)) {
     return false;
@@ -458,8 +459,9 @@ static bool create_resources(const struct app_config *cfg) {
   }
   for (unsigned int i = 0; i < cfg->nb_queues; i++) {
     rx_lcores[i] = queue_args[i].rx_lcore;
+    tx_lcores[i] = queue_args[i].tx_lcore;
   }
-  if (!flow_export_start(cfg, rx_lcores, cfg->nb_queues)) {
+  if (!flow_export_start(cfg, rx_lcores, tx_lcores, cfg->nb_queues)) {
     RTE_LOG(ERR, FLOWFWD, "cannot start flow export\n");
     free_rings();
     free_flow_tables();
@@ -514,6 +516,27 @@ bool forward_start(const struct app_config *cfg) {
   return launch_threads(cfg, forward_mac, reverse_mac);
 }
 
+static uint64_t read_stat(const atomic_uint_fast64_t *counter) {
+  return atomic_load_explicit(counter, memory_order_relaxed);
+}
+
+// What each thread did, logged once all threads have stopped.
+static void log_queue_summary(void) {
+  for (unsigned int q = 0; q < nb_queues; q++) {
+    const struct queue_args *args = &queue_args[q];
+
+    RTE_LOG(INFO, FLOWFWD,
+            "queue %u: RX lcore %u rx=%" PRIu64 " table_drops=%" PRIu64
+            " ring_drops=%" PRIu64 " | TX lcore %u tx=%" PRIu64
+            " tx_drops=%" PRIu64 "\n",
+            q, args->rx_lcore, read_stat(&args->rx_stats.rx_packets),
+            read_stat(&args->rx_stats.table_drops),
+            read_stat(&args->rx_stats.ring_drops), args->tx_lcore,
+            read_stat(&args->tx_stats.tx_packets),
+            read_stat(&args->tx_stats.tx_drops));
+  }
+}
+
 // The last export, made when all threads have stopped, so the flows of the
 // final interval are in the files with their final counters.
 static void final_export(void) {
@@ -539,6 +562,7 @@ void forward_stop(void) {
   for (unsigned int q = 0; q < nb_queues; q++) {
     rte_eal_wait_lcore(queue_args[q].tx_lcore);
   }
+  log_queue_summary();
   final_export();
   flow_export_stop();
   free_rings();
